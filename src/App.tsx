@@ -173,46 +173,67 @@ function App() {
       <TitleBar title={`AIspice — ${folderName}`} />
 
       {/* File tabs bar */}
-      {files.length > 0 && (
-        <div
+      <div
+        style={{
+          display: "flex",
+          gap: 0,
+          borderBottom: "1px solid var(--border-light)",
+          background: "var(--bg-secondary)",
+          overflowX: "auto",
+          flexShrink: 0,
+          alignItems: "center",
+        }}
+      >
+        {/* Switch folder button */}
+        <button
+          onClick={openFolder}
+          title="Switch project folder"
           style={{
-            display: "flex",
-            gap: 0,
-            borderBottom: "1px solid var(--border-light)",
-            background: "var(--bg-secondary)",
-            overflowX: "auto",
+            padding: "6px 12px",
+            fontSize: 14,
+            color: "var(--text-secondary)",
+            background: "transparent",
+            cursor: "pointer",
             flexShrink: 0,
+            borderRight: "1px solid var(--border-light)",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
           }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
         >
-          {files.map((f, i) => {
-            const isActive = f === activeFile;
-            const color = RAINBOW[i % RAINBOW.length];
-            const shortName = f.split("/").pop() || f;
-            return (
-              <button
-                key={f}
-                onClick={() => handleFileTabClick(f)}
-                title={f}
-                style={{
-                  padding: "8px 16px",
-                  fontSize: 12,
-                  fontFamily: "var(--font-mono)",
-                  borderBottom: `2px solid ${isActive ? color : "transparent"}`,
-                  color: isActive
-                    ? "var(--text-primary)"
-                    : "var(--text-secondary)",
-                  background: isActive ? "var(--bg-primary)" : "transparent",
-                  whiteSpace: "nowrap",
-                  cursor: "pointer",
-                  transition: "all 0.1s",
-                }}
-              >
-                {shortName}
-              </button>
-            );
-          })}
-        </div>
-      )}
+          <span style={{ fontSize: 16 }}>&#128193;</span>
+          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>{folderName}</span>
+        </button>
+        {files.map((f, i) => {
+          const isActive = f === activeFile;
+          const color = RAINBOW[i % RAINBOW.length];
+          const shortName = f.split("/").pop() || f;
+          return (
+            <button
+              key={f}
+              onClick={() => handleFileTabClick(f)}
+              title={f}
+              style={{
+                padding: "8px 16px",
+                fontSize: 12,
+                fontFamily: "var(--font-mono)",
+                borderBottom: `2px solid ${isActive ? color : "transparent"}`,
+                color: isActive
+                  ? "var(--text-primary)"
+                  : "var(--text-secondary)",
+                background: isActive ? "var(--bg-primary)" : "transparent",
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+                transition: "all 0.1s",
+              }}
+            >
+              {shortName}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Chat takes full remaining space */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>

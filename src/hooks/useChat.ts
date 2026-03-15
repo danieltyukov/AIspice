@@ -23,7 +23,7 @@ export interface SessionMeta {
 }
 
 interface ChatStreamEvent {
-  event_type: "thinking" | "text" | "done" | "error";
+  event_type: "thinking" | "text" | "done" | "error" | "edits_applied";
   data: string;
 }
 
@@ -150,6 +150,37 @@ export function useChat() {
               break;
             }
 
+            case "edits_applied": {
+              // Edits were applied to the file and LTspice was reloaded
+              try {
+                const parsed = JSON.parse(event.data);
+                const explanation = parsed.explanation || "Edits applied.";
+                const changes: ChangeInfo[] = parsed.changes || [];
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          content: `${explanation}\n\n*${parsed.summary || "File updated."}*`,
+                          isStreaming: false,
+                          changes,
+                        }
+                      : m,
+                  ),
+                );
+              } catch {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, content: "Edits applied to file.", isStreaming: false }
+                      : m,
+                  ),
+                );
+              }
+              setIsLoading(false);
+              break;
+            }
+
             case "error":
               setMessages((prev) =>
                 prev.map((m) =>
@@ -181,15 +212,14 @@ export function useChat() {
           provider: selectedProvider,
           onEvent: channel,
         });
-      } catch {
-        // Outside Tauri — provide a mock response
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
               ? {
                   ...m,
-                  content:
-                    "Chat backend is not available. Running outside Tauri.",
+                  content: `Error: ${errorMsg}`,
                   isStreaming: false,
                 }
               : m,

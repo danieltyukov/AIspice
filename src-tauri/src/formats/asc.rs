@@ -280,6 +280,7 @@ pub fn parse_asc(content: &str) -> Result<AscFile, String> {
 // ---------------------------------------------------------------------------
 
 /// Serialise an `AscFile` back to the LTspice `.asc` text format.
+#[allow(dead_code)]
 pub fn write_asc(file: &AscFile) -> String {
     let mut out = String::new();
 

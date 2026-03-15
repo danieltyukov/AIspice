@@ -31,6 +31,12 @@ pub enum EditOperation {
 
     #[serde(rename = "add_directive")]
     AddDirective { position: [i32; 2], text: String },
+
+    #[serde(rename = "remove_text")]
+    RemoveText { text: String },
+
+    #[serde(rename = "remove_wire")]
+    RemoveWire { from: [i32; 2], to: [i32; 2] },
 }
 
 /// The top-level response the AI returns when it wants to edit a schematic.

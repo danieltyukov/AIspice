@@ -37,10 +37,13 @@ An agentic AI chat that sits alongside LTspice and controls it. Edit schematics,
 ## Setup
 
 ```bash
-# Install dependencies
-npm install
+# One-command setup (installs all system deps, Rust, Node packages)
+./setup.sh
 
-# Run in development
+# Run AIspice
+./start
+
+# Or manually:
 npm run tauri dev
 
 # Build for production

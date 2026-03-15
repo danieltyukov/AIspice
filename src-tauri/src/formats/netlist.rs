@@ -181,6 +181,7 @@ pub fn parse_netlist(content: &str) -> Result<Netlist, String> {
 // ---------------------------------------------------------------------------
 
 /// Serialise a `Netlist` back to SPICE text.
+#[allow(dead_code)]
 pub fn write_netlist(netlist: &Netlist) -> String {
     let mut out = String::new();
 

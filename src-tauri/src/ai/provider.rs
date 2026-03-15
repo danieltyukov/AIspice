@@ -15,6 +15,7 @@ pub struct StreamEvent {
 }
 
 /// Metadata about a single change the AI made (returned after edits).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangeInfo {
     pub component: Option<String>,

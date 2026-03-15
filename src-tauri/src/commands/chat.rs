@@ -222,8 +222,66 @@ pub async fn send_chat_message_stream(
         }
     };
 
-    if let Err(e) = result {
-        return Err(e);
+    let accumulated_text = match result {
+        Ok(text) => text,
+        Err(e) => return Err(e),
+    };
+
+    // Check if the AI returned edit operations — if so, apply them to the file
+    if let Some(edit_response) =
+        crate::ai::apply_edits::try_parse_edit_response(&accumulated_text)
+    {
+        if edit_response.operations.is_empty() {
+            // AI returned JSON with empty operations — show just the explanation
+            let _ = on_event.send(StreamEvent {
+                event_type: "edits_applied".to_string(),
+                data: serde_json::json!({
+                    "summary": "No changes needed.",
+                    "explanation": edit_response.explanation,
+                    "changes": [],
+                })
+                .to_string(),
+            });
+            return Ok(());
+        }
+
+        if !active_file.is_empty() && !working_dir.is_empty()
+        {
+            match crate::ai::apply_edits::apply_edits_to_file(
+                &working_dir,
+                &active_file,
+                &edit_response.operations,
+            ) {
+                Ok(summary) => {
+                    // Send a summary event so the frontend knows edits were applied
+                    let changes_json = serde_json::to_string(&edit_response.changes)
+                        .unwrap_or_else(|_| "[]".to_string());
+                    let _ = on_event.send(StreamEvent {
+                        event_type: "edits_applied".to_string(),
+                        data: serde_json::json!({
+                            "summary": summary,
+                            "explanation": edit_response.explanation,
+                            "changes": serde_json::from_str::<serde_json::Value>(&changes_json)
+                                .unwrap_or(serde_json::Value::Null),
+                        })
+                        .to_string(),
+                    });
+
+                    // Try to reload LTspice
+                    let file_path = std::path::Path::new(&working_dir)
+                        .join(&active_file)
+                        .to_string_lossy()
+                        .to_string();
+                    let _ = crate::commands::ltspice::reload_ltspice_internal(&file_path);
+                }
+                Err(e) => {
+                    let _ = on_event.send(StreamEvent {
+                        event_type: "error".to_string(),
+                        data: format!("Failed to apply edits: {}", e),
+                    });
+                }
+            }
+        }
     }
 
     Ok(())

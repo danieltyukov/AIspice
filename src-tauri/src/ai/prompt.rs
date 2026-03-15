@@ -77,6 +77,14 @@ Each element in the "operations" array must have an "op" field. Valid operations
    {"op": "add_directive", "position": [48, 400], "text": ".tran 10m"}
    The text should include the SPICE dot-command prefix.
 
+8. remove_text — Remove a TEXT/directive line by its content
+   {"op": "remove_text", "text": ".op"}
+   Removes any TEXT line containing the specified string. Use this to remove SPICE directives, comments, or text annotations.
+
+9. remove_wire — Remove a specific wire segment
+   {"op": "remove_wire", "from": [256, 160], "to": [400, 160]}
+   Removes the WIRE line matching these coordinates (in either direction).
+
 == SIMULATION GUIDANCE ==
 
 When the user wants to simulate:

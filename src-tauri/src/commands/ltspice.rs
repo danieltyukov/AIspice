@@ -3,6 +3,24 @@ use tauri::State;
 
 use crate::state::AppState;
 
+/// Find the LTspice exe path in common Wine locations.
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+fn home_dir_ltspice_path() -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let candidates = [
+        format!("{}/.wine/drive_c/Program Files/LTC/LTspiceXVII/XVIIx64.exe", home),
+        format!("{}/LTspice64.exe", home),
+        format!("{}/.wine/drive_c/Program Files/ADI/LTspice/LTspice.exe", home),
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Some(path.clone());
+        }
+    }
+    None
+}
+
 /// Information about a detected LTspice installation.
 #[derive(serde::Serialize)]
 pub struct LtspiceInfo {
@@ -238,6 +256,87 @@ pub async fn reload_ltspice(
 
     #[allow(unreachable_code)]
     Err("Unsupported platform".to_string())
+}
+
+/// Internal non-async helper to reload LTspice. Used by chat command after edits.
+/// Best-effort — silently ignores failures.
+pub fn reload_ltspice_internal(file_path: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        // Find existing LTspice window and close+reopen the file within it
+        // (avoids spawning a new LTspice session)
+        if let Ok(output) = Command::new("xdotool")
+            .args(["search", "--name", "LTspice XVII"])
+            .output()
+        {
+            let window_ids = String::from_utf8_lossy(&output.stdout);
+            if let Some(wid) = window_ids.trim().lines().next() {
+                // Focus the LTspice window
+                let _ = Command::new("xdotool")
+                    .args(["windowactivate", "--sync", wid])
+                    .output();
+                std::thread::sleep(std::time::Duration::from_millis(300));
+
+                // Close current file (Ctrl+W), then reopen it (Ctrl+O)
+                let _ = Command::new("xdotool")
+                    .args(["key", "--clearmodifiers", "ctrl+w"])
+                    .output();
+                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                // Convert Unix path to Wine path and open via Ctrl+O
+                let win_path = if let Ok(wp) = Command::new("winepath")
+                    .arg("-w")
+                    .arg(file_path)
+                    .output()
+                {
+                    String::from_utf8_lossy(&wp.stdout).trim().to_string()
+                } else {
+                    file_path.to_string()
+                };
+
+                let _ = Command::new("xdotool")
+                    .args(["key", "--clearmodifiers", "ctrl+o"])
+                    .output();
+                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                // Type the file path into the open dialog and press Enter
+                let _ = Command::new("xdotool")
+                    .args(["type", "--clearmodifiers", &win_path])
+                    .output();
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let _ = Command::new("xdotool")
+                    .args(["key", "Return"])
+                    .output();
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            r#"tell application "LTspice" to open POSIX file "{}""#,
+            _file_path
+        );
+        let _ = Command::new("osascript").arg("-e").arg(&script).output();
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Find LTspice window and send F5
+        let _ = Command::new("powershell")
+            .arg("-Command")
+            .arg(r#"
+                Add-Type -AssemblyName System.Windows.Forms
+                $wshell = New-Object -ComObject wscript.shell
+                $proc = Get-Process -Name "XVIIx64" -ErrorAction SilentlyContinue
+                if ($proc) {
+                    $wshell.AppActivate($proc.MainWindowTitle)
+                    Start-Sleep -Milliseconds 200
+                    [System.Windows.Forms.SendKeys]::SendWait("^r")
+                }
+            "#)
+            .output();
+    }
 }
 
 /// Run LTspice simulation in batch mode.

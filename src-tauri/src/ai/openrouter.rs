@@ -7,6 +7,7 @@ use super::provider::{ChatMessage, StreamEvent};
 ///
 /// This is a convenience wrapper around `stream_openai_compatible` that uses
 /// the OpenRouter endpoint and bearer auth.
+#[allow(dead_code)]
 pub async fn stream_openrouter(
     api_key: &str,
     model: &str,
