@@ -1,0 +1,28 @@
+.status-bar {
+  height: var(--statusbar-height);
+  min-height: var(--statusbar-height);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  gap: 16px;
+  user-select: none;
+}
+
+.status-bar__section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-bar__spacer {
+  flex: 1;
+}
+
+.status-bar__label {
+  color: var(--text-muted);
+}
