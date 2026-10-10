@@ -1228,3 +1228,63 @@ Size component values to meet a spec table with the simulator in the loop (Nelde
 
 </details>
 
+## `templates`
+
+Verified reference circuits to start a design from: passive and active filters, op-amp and transistor gain stages, voltage references, regulators and power switching, an oscillator, a logic level shifter and a photodiode front end. Every template is simulated in aispice's test suite and meets its own spec table. `list` shows the library (filter by category or by words), `show` gives a template's design equations, the parts usually changed, its spec table and the parts and nets of the schematic, and `use` copies it into the project as a new circuit with its specs saved beside it, ready for check_specs and then optimize. `use` refuses to overwrite existing files.
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "properties": {
+    "action": {
+      "anyOf": [
+        {
+          "description": "The library: id, title, category and a description of each.",
+          "enum": [
+            "list"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "One template in full: design equations, the parts to change, the\nspec table and the schematic.",
+          "enum": [
+            "show"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Copy a template into the project as a new circuit, with its specs.",
+          "enum": [
+            "use"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "category": {
+      "description": "For `list`: only this category (filters, amplifiers, references,\npower, oscillators, digital, sensors).",
+      "type": "string"
+    },
+    "circuit": {
+      "description": "For `use`: path of the new schematic relative to the project folder,\nending in `.asc`. The spec table is written beside it as\n`<name>.specs`, where check_specs, optimize and monte_carlo find it.",
+      "type": "string"
+    },
+    "id": {
+      "description": "Template id for `show` and `use`, from `list`, e.g. `sallen_key_lowpass`.",
+      "type": "string"
+    },
+    "query": {
+      "description": "For `list`: words that must all appear in the id, title or\ndescription, e.g. `low-pass` or `photodiode`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
