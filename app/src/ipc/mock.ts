@@ -57,9 +57,9 @@ interface MockCircuit {
 
 const MODELS: Record<ProviderId, ModelInfo[]> = {
   anthropic: [
-    { id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5", context_window: 200000, supports_tools: true, supports_vision: true },
-    { id: "claude-opus-4-1", display_name: "Claude Opus 4.1", context_window: 200000, supports_tools: true, supports_vision: true },
-    { id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5", context_window: 200000, supports_tools: true, supports_vision: true },
+    { id: "claude-opus-5-5", display_name: "Claude Opus 5.5", context_window: 200000, supports_tools: true, supports_vision: true },
+    { id: "claude-sonnet-5-5", display_name: "Claude Sonnet 5.5", context_window: 200000, supports_tools: true, supports_vision: true },
+    { id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", context_window: 200000, supports_tools: true, supports_vision: true },
   ],
   openai: [
     { id: "gpt-5", display_name: "GPT-5", context_window: 400000, supports_tools: true, supports_vision: true },
@@ -67,10 +67,10 @@ const MODELS: Record<ProviderId, ModelInfo[]> = {
   ],
   google: [
     { id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro", context_window: 1000000, supports_tools: true, supports_vision: true },
-    { id: "gemini-2.5-flash", display_name: "Gemini 2.5 Flash", context_window: 1000000, supports_tools: true, supports_vision: true },
+    { id: "gemini-3.1-flash-lite", display_name: "Gemini 3.1 Flash-Lite", context_window: 1000000, supports_tools: true, supports_vision: true },
   ],
   openrouter: [
-    { id: "anthropic/claude-sonnet-4.5", display_name: "Anthropic: Claude Sonnet 4.5", supports_tools: true },
+    { id: "anthropic/claude-sonnet-5.5", display_name: "Anthropic: Claude Sonnet 5.5", supports_tools: true },
     { id: "qwen/qwen3-coder", display_name: "Qwen: Qwen3 Coder", supports_tools: true },
     { id: "deepseek/deepseek-chat-v3.1", display_name: "DeepSeek: V3.1", supports_tools: true },
   ],
@@ -127,7 +127,7 @@ export function createMockBackend(options: MockOptions = {}): Backend {
   // Settings outlive a reload, as they do with the real backend's config file.
   let settings: Settings = {
     provider: "anthropic",
-    model: "claude-sonnet-4-5",
+    model: "claude-opus-5-5",
     base_urls: {},
     simulator: "auto",
     ltspice_path: null,

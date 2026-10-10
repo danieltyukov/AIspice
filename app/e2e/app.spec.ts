@@ -194,11 +194,11 @@ test.describe("chat", () => {
 
   test("the model picker lists the provider's models", async ({ page }) => {
     await openProject(page);
-    await page.getByRole("button", { name: /Anthropic claude-sonnet-4-5/ }).click();
+    await page.getByRole("button", { name: /Anthropic claude-opus-5-5/ }).click();
     const menu = page.getByRole("dialog", { name: "Choose a model" });
     await expect(menu.getByRole("listbox", { name: "Models" }).getByRole("option")).toHaveCount(3);
-    await menu.getByRole("button", { name: /Claude Haiku 4.5/ }).click();
-    await expect(page.locator(".statusbar")).toContainText("claude-haiku-4-5");
+    await menu.getByRole("button", { name: /Claude Haiku 5.5/ }).click();
+    await expect(page.locator(".statusbar")).toContainText("claude-haiku-5-5");
   });
 });
 
