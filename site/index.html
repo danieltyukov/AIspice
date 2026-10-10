@@ -218,11 +218,19 @@
             </div>
             <div>
               <dt>Draw from a netlist</dt>
-              <dd>Give it a SPICE netlist and it places and wires a readable LTspice schematic.</dd>
+              <dd>Give it a SPICE netlist and it places and wires a readable LTspice schematic, then checks that the drawing netlists back to the same circuit.</dd>
             </div>
             <div>
               <dt>Electrical rule checks</dt>
               <dd>No ground, floating pins, dangling wires, shorted or parallel sources and nets with no DC path are reported before anything runs.</dd>
+            </div>
+            <div>
+              <dt>Bias point</dt>
+              <dd>The operating point of every transistor: region, current, gm, gds, gm/Id and intrinsic gain, with a note when a device that should be saturated is not.</dd>
+            </div>
+            <div>
+              <dt>Start from a template</dt>
+              <dd>Seventeen reference circuits, from an RC filter to a transimpedance amplifier, each with design equations and specs that pass in simulation.</dd>
             </div>
             <div>
               <dt>Poles and zeros</dt>
@@ -230,7 +238,7 @@
             </div>
             <div>
               <dt>Schematic from an image</dt>
-              <dd>A screenshot or photo of a schematic becomes a netlist you can simulate, with a model that accepts images.</dd>
+              <dd>A screenshot or photo of a schematic becomes a netlist and then an LTspice schematic you can simulate, with a model that accepts images.</dd>
             </div>
           </dl>
         </section>
