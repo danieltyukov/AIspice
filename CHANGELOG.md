@@ -21,6 +21,7 @@ A rewrite. aispice is now one Rust engine with three front ends: a desktop app, 
 - `templates` tool with 17 verified reference circuits (filters, amplifiers, references, power, oscillators, digital, sensors), each a readable LTspice schematic with design equations and a spec table that passes on ngspice.
 - `aispice eval` and a 13-task design suite in `evals/`, judged by simulation, reporting pass rate, steps, tokens and time per model.
 - Desktop app: import a SPICE netlist as a drawn schematic.
+- Linux launcher integration: the dock and app grid show the aispice icon on X11 and Wayland, from the packages and from an AppImage.
 - Simulation on ngspice, Xyce, LTspice (native or under Wine, headless with `xvfb-run`) and Cadence Spectre over SSH.
 - Measurements (gain, bandwidth, phase and gain margin, overshoot, settling, rise and fall time, RMS and more), spec tables with margins, parameter sweeps, Monte Carlo with yield, and an optimizer.
 - `aispice check` for testing circuits against their specs in CI.
