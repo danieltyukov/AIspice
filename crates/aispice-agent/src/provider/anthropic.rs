@@ -14,14 +14,18 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    ChatRequest, ChatResponse, ModelInfo, Provider, ProviderError, Retrier, RetryPolicy,
-    StopReason, StreamEvent, Usage, error_message, http_client, read_sse, send, trim_base_url,
+    ChatRequest, ChatResponse, HttpLimits, ModelInfo, Provider, ProviderError, Retrier,
+    RetryPolicy, StopReason, StreamEvent, Usage, display_url, error_message, http_client,
+    read_limited, read_sse, send, trim_base_url,
 };
 use crate::message::{ContentBlock, Message, Role};
 
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
+/// Model list pages fetched at most. The real list is one page; the cap
+/// stops a server that always claims more.
+const MAX_MODEL_PAGES: usize = 20;
 
 /// Models that accept `fallbacks: "default"`, which reruns a request declined
 /// by a safety classifier on a model that can serve it, inside the same call.
@@ -69,6 +73,7 @@ pub struct AnthropicProvider {
     api_key: String,
     base_url: String,
     retry: RetryPolicy,
+    limits: HttpLimits,
     features: AnthropicFeatures,
 }
 
@@ -79,8 +84,19 @@ impl AnthropicProvider {
             api_key: api_key.into(),
             base_url: DEFAULT_BASE_URL.to_string(),
             retry: RetryPolicy::default(),
+            limits: HttpLimits::default(),
             features: AnthropicFeatures::ALL,
         }
+    }
+
+    pub fn with_limits(mut self, limits: HttpLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// Errors leave the provider through here, so the key never does.
+    fn redact(&self, err: ProviderError) -> ProviderError {
+        err.redacted(&[&self.api_key])
     }
 
     /// Point at a proxy or test server. The URL is the part before `/v1`.
@@ -182,13 +198,17 @@ impl AnthropicProvider {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
             .header("accept", "text/event-stream")
+            .timeout(self.limits.request_timeout)
             .json(body);
         if body.get("fallbacks").is_some() {
             request = request.header("anthropic-beta", FALLBACK_BETA);
         }
-        let response = send(request, cancel).await?;
-        let mut state = StreamState::default();
-        read_sse(response, cancel, |event| state.handle(&event.data, sink)).await?;
+        let response = send(request, cancel, &self.limits).await?;
+        let mut state = StreamState::new(&self.limits);
+        read_sse(response, &self.limits, cancel, |event| {
+            state.handle(&event.data, sink)
+        })
+        .await?;
         state.finish()
     }
 
@@ -197,29 +217,48 @@ impl AnthropicProvider {
         after: Option<&str>,
         cancel: &CancellationToken,
     ) -> Result<Value, ProviderError> {
-        // Model ids are plain ASCII slugs, so no query encoding is needed.
         let mut url = format!("{}/v1/models?limit=1000", self.base_url);
         if let Some(after) = after {
             url.push_str("&after_id=");
-            url.push_str(after);
+            url.push_str(&query_escape(after));
         }
         let request = self
             .client
             .get(url)
             .header("x-api-key", &self.api_key)
-            .header("anthropic-version", API_VERSION);
-        let response = send(request, cancel).await?;
-        response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))
+            .header("anthropic-version", API_VERSION)
+            .timeout(self.limits.list_timeout);
+        let response = send(request, cancel, &self.limits).await?;
+        let body = read_limited(
+            response,
+            self.limits.max_json_body,
+            Some("the model list"),
+            &self.limits,
+            cancel,
+        )
+        .await?;
+        serde_json::from_slice(&body).map_err(|e| ProviderError::Parse(e.to_string()))
     }
+}
+
+/// Percent-encode a value taken from a response before it goes into a URL.
+fn query_escape(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
 impl fmt::Debug for AnthropicProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AnthropicProvider")
-            .field("base_url", &self.base_url)
+            .field("base_url", &display_url(&self.base_url))
             .field("features", &self.features)
             .finish_non_exhaustive()
     }
@@ -251,6 +290,7 @@ impl Provider for AnthropicProvider {
             match result {
                 Ok(response) => return Ok(response),
                 Err(err) => {
+                    let err = self.redact(err);
                     if !retrier.backoff(self.id(), &err, streamed).await? {
                         return Err(err);
                     }
@@ -263,12 +303,13 @@ impl Provider for AnthropicProvider {
         let cancel = CancellationToken::new();
         let mut models = Vec::new();
         let mut after: Option<String> = None;
-        loop {
+        for _ in 0..MAX_MODEL_PAGES {
             let mut retrier = Retrier::new(&self.retry, &cancel);
             let page = loop {
                 match self.models_page(after.as_deref(), &cancel).await {
                     Ok(page) => break page,
                     Err(err) => {
+                        let err = self.redact(err);
                         if !retrier.backoff(self.id(), &err, false).await? {
                             return Err(err);
                         }
@@ -288,10 +329,13 @@ impl Provider for AnthropicProvider {
                 });
             }
             match (page["has_more"].as_bool(), page["last_id"].as_str()) {
-                (Some(true), Some(last)) => after = Some(last.to_string()),
+                (Some(true), Some(last)) if after.as_deref() != Some(last) => {
+                    after = Some(last.to_string());
+                }
                 _ => return Ok(models),
             }
         }
+        Ok(models)
     }
 }
 
@@ -389,15 +433,27 @@ enum Partial {
 }
 
 /// Assembles a message from stream events.
-#[derive(Default)]
 struct StreamState {
     blocks: Vec<(u64, Partial)>,
     usage: Usage,
     stop_reason: Option<String>,
     done: bool,
+    max_blocks: usize,
+    max_tool_input: usize,
 }
 
 impl StreamState {
+    fn new(limits: &HttpLimits) -> Self {
+        Self {
+            blocks: Vec::new(),
+            usage: Usage::default(),
+            stop_reason: None,
+            done: false,
+            max_blocks: limits.max_blocks,
+            max_tool_input: limits.max_tool_input,
+        }
+    }
+
     /// Returns `Ok(false)` once the message is complete.
     fn handle(
         &mut self,
@@ -411,8 +467,8 @@ impl StreamState {
             .map_err(|e| ProviderError::Parse(format!("{e} in event {data:.200}")))?;
         match v["type"].as_str().unwrap_or("") {
             "message_start" => self.update_usage(&v["message"]["usage"]),
-            "content_block_start" => self.block_start(&v, sink),
-            "content_block_delta" => self.block_delta(&v, sink),
+            "content_block_start" => self.block_start(&v, sink)?,
+            "content_block_delta" => self.block_delta(&v, sink)?,
             "message_delta" => {
                 if let Some(reason) = v["delta"]["stop_reason"].as_str() {
                     self.stop_reason = Some(reason.to_string());
@@ -429,7 +485,17 @@ impl StreamState {
         Ok(true)
     }
 
-    fn block_start(&mut self, v: &Value, sink: &mut (dyn FnMut(StreamEvent) + Send)) {
+    fn block_start(
+        &mut self,
+        v: &Value,
+        sink: &mut (dyn FnMut(StreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
+        if self.blocks.len() >= self.max_blocks {
+            return Err(ProviderError::TooLarge(format!(
+                "more than {} content blocks in one response",
+                self.max_blocks
+            )));
+        }
         let index = v["index"].as_u64().unwrap_or(self.blocks.len() as u64);
         let block = &v["content_block"];
         let str_field = |key: &str| block[key].as_str().unwrap_or("").to_string();
@@ -485,17 +551,23 @@ impl StreamState {
             _ => Partial::Ignored,
         };
         self.blocks.push((index, partial));
+        Ok(())
     }
 
-    fn block_delta(&mut self, v: &Value, sink: &mut (dyn FnMut(StreamEvent) + Send)) {
+    fn block_delta(
+        &mut self,
+        v: &Value,
+        sink: &mut (dyn FnMut(StreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
         let index = v["index"].as_u64();
+        let max_tool_input = self.max_tool_input;
         let Some((_, block)) = self
             .blocks
             .iter_mut()
             .rev()
             .find(|(i, _)| index.is_none_or(|x| x == *i))
         else {
-            return;
+            return Ok(());
         };
         let delta = &v["delta"];
         let field = |key: &str| delta[key].as_str().unwrap_or("");
@@ -513,6 +585,12 @@ impl StreamState {
             }
             ("input_json_delta", Partial::ToolUse { id, json, .. }) => {
                 let partial = field("partial_json");
+                if json.len() + partial.len() > max_tool_input {
+                    return Err(ProviderError::too_large(
+                        "the input of one tool call",
+                        max_tool_input,
+                    ));
+                }
                 json.push_str(partial);
                 if !partial.is_empty() {
                     sink(StreamEvent::ToolUseInputDelta {
@@ -523,6 +601,7 @@ impl StreamState {
             }
             _ => {}
         }
+        Ok(())
     }
 
     fn update_usage(&mut self, usage: &Value) {
@@ -675,6 +754,7 @@ mod tests {
             max_retries: 2,
             base_delay: Duration::from_millis(1),
             max_delay: Duration::from_millis(50),
+            ..RetryPolicy::default()
         }
     }
 

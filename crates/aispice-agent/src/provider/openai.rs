@@ -18,9 +18,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::anthropic::parse_tool_input;
 use super::{
-    ChatRequest, ChatResponse, Effort, ModelInfo, Provider, ProviderError, Retrier, RetryPolicy,
-    StopReason, StreamEvent, Usage, http_client, read_sse, send, trim_base_url,
+    ChatRequest, ChatResponse, Effort, HttpLimits, ModelInfo, Provider, ProviderError, Retrier,
+    RetryPolicy, StopReason, StreamEvent, Usage, display_url, http_client, read_limited, read_sse,
+    send, trim_base_url,
 };
+
+/// Headers that carry nothing secret. Any other custom header value is
+/// treated as a credential and scrubbed from errors.
+const PUBLIC_HEADERS: &[&str] = &["http-referer", "x-title"];
 use crate::message::{ContentBlock, Message, Role};
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
@@ -53,6 +58,7 @@ pub struct OpenAiProvider {
     api_key: Option<String>,
     headers: Vec<(String, String)>,
     retry: RetryPolicy,
+    limits: HttpLimits,
     token_field: TokenField,
     reasoning: ReasoningStyle,
     /// Gemini rejects some JSON Schema keywords the others accept.
@@ -68,10 +74,29 @@ impl OpenAiProvider {
             api_key: api_key.filter(|k| !k.is_empty()),
             headers: Vec::new(),
             retry: RetryPolicy::default(),
+            limits: HttpLimits::default(),
             token_field: TokenField::MaxTokens,
             reasoning: ReasoningStyle::Effort,
             gemini_schemas: false,
         }
+    }
+
+    pub fn with_limits(mut self, limits: HttpLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// Errors leave the provider through here, so neither the key nor a
+    /// custom credential header ever does.
+    fn redact(&self, err: ProviderError) -> ProviderError {
+        let mut secrets: Vec<&str> = self.api_key.iter().map(String::as_str).collect();
+        secrets.extend(
+            self.headers
+                .iter()
+                .filter(|(name, _)| !PUBLIC_HEADERS.contains(&name.to_ascii_lowercase().as_str()))
+                .map(|(_, value)| value.as_str()),
+        );
+        err.redacted(&secrets)
     }
 
     pub fn openai(api_key: impl Into<String>) -> Self {
@@ -214,26 +239,52 @@ impl OpenAiProvider {
             self.client
                 .post(format!("{}/chat/completions", self.base_url))
                 .header("accept", "text/event-stream")
+                .timeout(self.limits.request_timeout)
                 .json(body),
         );
-        let response = send(request, cancel).await?;
+        let response = send(request, cancel, &self.limits).await?;
         let is_json = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("application/json"));
-        let mut state = StreamState::default();
+        let mut state = StreamState::new(&self.limits);
         if is_json {
-            let text = tokio::select! {
-                _ = cancel.cancelled() => return Err(ProviderError::Cancelled),
-                t = response.text() => t.map_err(ProviderError::from_reqwest)?,
-            };
-            state.handle(&text, sink)?;
+            let body = read_limited(
+                response,
+                self.limits.max_stream_bytes,
+                Some("the response"),
+                &self.limits,
+                cancel,
+            )
+            .await?;
+            state.handle(&String::from_utf8_lossy(&body), sink)?;
             state.done = true;
         } else {
-            read_sse(response, cancel, |event| state.handle(&event.data, sink)).await?;
+            read_sse(response, &self.limits, cancel, |event| {
+                state.handle(&event.data, sink)
+            })
+            .await?;
         }
         state.finish()
+    }
+
+    async fn fetch_models(&self, cancel: &CancellationToken) -> Result<Value, ProviderError> {
+        let request = self.authorize(
+            self.client
+                .get(format!("{}/models", self.base_url))
+                .timeout(self.limits.list_timeout),
+        );
+        let response = send(request, cancel, &self.limits).await?;
+        let body = read_limited(
+            response,
+            self.limits.max_json_body,
+            Some("the model list"),
+            &self.limits,
+            cancel,
+        )
+        .await?;
+        serde_json::from_slice(&body).map_err(|e| ProviderError::Parse(e.to_string()))
     }
 }
 
@@ -241,8 +292,9 @@ impl fmt::Debug for OpenAiProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OpenAiProvider")
             .field("id", &self.id)
-            .field("base_url", &self.base_url)
+            .field("base_url", &display_url(&self.base_url))
             .field("has_key", &self.api_key.is_some())
+            .field("headers", &self.headers.len())
             .finish_non_exhaustive()
     }
 }
@@ -273,6 +325,7 @@ impl Provider for OpenAiProvider {
             match result {
                 Ok(response) => return Ok(response),
                 Err(err) => {
+                    let err = self.redact(err);
                     if !retrier.backoff(&self.id, &err, streamed).await? {
                         return Err(err);
                     }
@@ -285,17 +338,10 @@ impl Provider for OpenAiProvider {
         let cancel = CancellationToken::new();
         let mut retrier = Retrier::new(&self.retry, &cancel);
         let page: Value = loop {
-            let request = self.authorize(self.client.get(format!("{}/models", self.base_url)));
-            let result = match send(request, &cancel).await {
-                Ok(response) => response
-                    .json()
-                    .await
-                    .map_err(|e| ProviderError::Parse(e.to_string())),
-                Err(err) => Err(err),
-            };
-            match result {
+            match self.fetch_models(&cancel).await {
                 Ok(page) => break page,
                 Err(err) => {
+                    let err = self.redact(err);
                     if !retrier.backoff(&self.id, &err, false).await? {
                         return Err(err);
                     }
@@ -491,7 +537,6 @@ struct Call {
     started: bool,
 }
 
-#[derive(Default)]
 struct StreamState {
     text: String,
     reasoning: String,
@@ -499,9 +544,24 @@ struct StreamState {
     finish_reason: Option<String>,
     usage: Usage,
     done: bool,
+    max_blocks: usize,
+    max_tool_input: usize,
 }
 
 impl StreamState {
+    fn new(limits: &HttpLimits) -> Self {
+        Self {
+            text: String::new(),
+            reasoning: String::new(),
+            calls: Vec::new(),
+            finish_reason: None,
+            usage: Usage::default(),
+            done: false,
+            max_blocks: limits.max_blocks,
+            max_tool_input: limits.max_tool_input,
+        }
+    }
+
     /// Returns `Ok(false)` at `[DONE]`.
     fn handle(
         &mut self,
@@ -552,7 +612,7 @@ impl StreamState {
                 .flatten()
                 .enumerate()
             {
-                self.tool_call_delta(call, pos, sink);
+                self.tool_call_delta(call, pos, sink)?;
             }
             if let Some(reason) = choice["finish_reason"].as_str() {
                 self.finish_reason = Some(reason.to_string());
@@ -566,7 +626,7 @@ impl StreamState {
         delta: &Value,
         pos: usize,
         sink: &mut (dyn FnMut(StreamEvent) + Send),
-    ) {
+    ) -> Result<(), ProviderError> {
         let index = delta["index"].as_u64();
         let id = delta["id"].as_str().filter(|s| !s.is_empty());
         let existing = match (index, id) {
@@ -577,16 +637,26 @@ impl StreamState {
             (None, None) if pos == 0 => self.calls.len().checked_sub(1),
             (None, None) => None,
         };
-        let slot = existing.unwrap_or_else(|| {
-            self.calls.push(Call {
-                index,
-                id: String::new(),
-                name: String::new(),
-                arguments: String::new(),
-                started: false,
-            });
-            self.calls.len() - 1
-        });
+        let slot = match existing {
+            Some(slot) => slot,
+            None if self.calls.len() >= self.max_blocks => {
+                return Err(ProviderError::TooLarge(format!(
+                    "more than {} tool calls in one response",
+                    self.max_blocks
+                )));
+            }
+            None => {
+                self.calls.push(Call {
+                    index,
+                    id: String::new(),
+                    name: String::new(),
+                    arguments: String::new(),
+                    started: false,
+                });
+                self.calls.len() - 1
+            }
+        };
+        let max_tool_input = self.max_tool_input;
         let call = &mut self.calls[slot];
         if call.id.is_empty()
             && let Some(id) = id
@@ -604,6 +674,12 @@ impl StreamState {
             // Some servers send the arguments as an object instead of text.
             other => other.to_string(),
         };
+        if call.arguments.len() + fragment.len() > max_tool_input {
+            return Err(ProviderError::too_large(
+                "the input of one tool call",
+                max_tool_input,
+            ));
+        }
         call.arguments.push_str(&fragment);
         if !call.started && !call.name.is_empty() {
             call.started = true;
@@ -626,6 +702,7 @@ impl StreamState {
                 partial_json: fragment,
             });
         }
+        Ok(())
     }
 
     fn update_usage(&mut self, usage: &Value) {
@@ -758,6 +835,7 @@ mod tests {
             max_retries: 2,
             base_delay: Duration::from_millis(1),
             max_delay: Duration::from_millis(50),
+            ..RetryPolicy::default()
         }
     }
 
