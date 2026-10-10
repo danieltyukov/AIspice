@@ -1,0 +1,13 @@
+id = "explain-filter"
+title = "Explain what a filter does, without changing it"
+difficulty = "easy"
+prompt = """
+What kind of filter is in mystery.asc, and what is its -3 dB frequency? Just explain, do not change anything.
+"""
+circuit = "mystery.asc"
+max_steps = 8
+constraints = [
+  { kind = "answer_mentions", any = ["high-pass", "high pass", "highpass"] },
+  { kind = "answer_number", value = "1026", tol_pct = 5 },
+  { kind = "files_unchanged" },
+]

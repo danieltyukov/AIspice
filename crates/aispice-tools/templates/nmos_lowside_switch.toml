@@ -1,0 +1,35 @@
+id = "nmos_lowside_switch"
+title = "NMOS low-side switch with an inductive load"
+category = "power"
+description = "A logic-level signal (0 to 5 V) switches a 12 V relay coil through an N-channel MOSFET between the load and ground. Rg limits the gate charging current and damps ringing, Rpd holds the MOSFET off when the driver is floating, and the flyback diode D1 gives the coil current a path at turn-off so the drain is clamped one diode drop above the supply. M1 and D1 use generic models written in the schematic (NSW, a 2N7002-class NMOS with Vth about 2 V, and DSIG, a 1N4148-class diode); replace them with the real parts' models."
+analysis = ".tran 0 2m 0 0.5u"
+specs = """
+von = value_at(V(drain), 1m) <= 0.5
+ion = value_at(I(L1), 1m) in 85m..110m
+clamp = max(V(drain)) <= 14.5
+"""
+
+[[parameters]]
+part = "M1"
+controls = "On-state drop and losses: choose a part with low Rds(on) at the available gate voltage"
+equation = "Vds(on) = Iload Rds(on); P = Iload^2 Rds(on)"
+
+[[parameters]]
+part = "Rg"
+controls = "Switching speed and gate drive current"
+equation = "gate time constant is about Rg Ciss"
+
+[[parameters]]
+part = "Rpd"
+controls = "Off-state gate bias when the driver is high impedance"
+equation = "large enough not to load the driver, typically 10k to 100k"
+
+[[parameters]]
+part = "D1"
+controls = "Turn-off clamp; a slow release because the coil current decays only through Rcoil and D1"
+equation = "V(drain) peak = Vcc + Vf; decay time constant is about L1 / Rcoil"
+
+[[parameters]]
+part = "Rcoil"
+controls = "Load current (the coil's winding resistance)"
+equation = "Ion = Vcc / (Rcoil + Rds(on)), reached after a few L1 / Rcoil"

@@ -1,0 +1,44 @@
+id = "wien_bridge_oscillator"
+title = "Wien-bridge sine oscillator with diode amplitude control"
+category = "oscillators"
+description = "Low-distortion sine oscillator. The series and parallel RC arms feed back a third of the output, with zero phase shift, at f0 = 1/(2 pi R C), so the non-inverting gain must be 3. The gain is set a little above 3 to start, and the antiparallel diodes across R4 lower it as the amplitude grows, which holds the swing at a few volts. A .ic directive gives the simulator a small kick, since the ideal circuit at rest never starts. The diodes use DSIG, a generic 1N4148-class model written in the schematic."
+analysis = ".tran 0 50m 0 2u"
+specs = """
+freq = frequency(V(out), 30m, 50m) in 1.45k..1.75k
+amp = pp(V(out), 30m, 50m) in 3..10
+"""
+
+[[parameters]]
+part = "R1"
+controls = "Oscillation frequency; keep R1 = R2"
+equation = "f0 = 1 / (2 pi R C)"
+
+[[parameters]]
+part = "R2"
+controls = "Oscillation frequency; keep R2 = R1"
+equation = "f0 = 1 / (2 pi R C)"
+
+[[parameters]]
+part = "C1"
+controls = "Oscillation frequency; keep C1 = C2"
+equation = "f0 = 1 / (2 pi R C)"
+
+[[parameters]]
+part = "C2"
+controls = "Oscillation frequency; keep C2 = C1"
+equation = "f0 = 1 / (2 pi R C)"
+
+[[parameters]]
+part = "R4"
+controls = "Amplitude: the part of the feedback the diodes shunt; more R4 gives a larger swing and faster start"
+equation = "small-signal gain = 1 + (R3 + R4) / Rg must exceed 3; with the diodes fully on it falls to about 1 + R3 / Rg, which must be below 3"
+
+[[parameters]]
+part = "R3"
+controls = "Amplitude and distortion (the fixed part of the feedback)"
+equation = "1 + R3 / Rg < 3 < 1 + (R3 + R4) / Rg"
+
+[[parameters]]
+part = "Rg"
+controls = "Sets the gain scale of the negative feedback"
+equation = "gain = 1 + Rf / Rg"

@@ -1,0 +1,16 @@
+id = "rise-time"
+title = "Set an RC step response rise time"
+difficulty = "easy"
+prompt = """
+In step.asc the RC network's 10-90% rise time at node out is about 22 µs. Change C1 so the rise time is 50 µs within 10%. Keep R1 at 1 kΩ.
+"""
+circuit = "step.asc"
+analysis = ".tran 0.5u 500u"
+specs = """
+tr = rise_time(V(out), 10, 90) in 45u..55u
+"""
+max_steps = 8
+constraints = [
+  { kind = "value", name = "R1", equals = "1k" },
+  { kind = "max_parts", count = 3 },
+]

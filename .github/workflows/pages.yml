@@ -1,0 +1,71 @@
+name: Pages
+
+# Pages must be set to build from "GitHub Actions" in the repository settings.
+# With the default "Deploy from a branch" the deploy step fails with a 404 that
+# does not say which setting is wrong.
+
+on:
+  push:
+    branches: [master]
+    # Everything the page is built from, including what it reads from outside
+    # site/: the app's tokens and fonts set how it looks, the brand folder holds
+    # the logo and social card, and the lockfile pins the Vite that builds it.
+    paths:
+      - 'site/**'
+      - 'app/src/tokens.css'
+      - 'app/src/fonts/**'
+      - 'assets/brand/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Read only at the workflow level. The deploy credentials go to the deploy job
+# alone, because the build runs `npm ci` and so executes install scripts from
+# the whole dependency tree.
+permissions:
+  contents: read
+
+# One deploy at a time, and a queued one is not cancelled: cancelling a running
+# deploy can leave the site half published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/configure-pages@v6
+
+      - run: npm ci
+
+      - run: npm run build -w site
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5

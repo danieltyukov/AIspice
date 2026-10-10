@@ -1,0 +1,42 @@
+Circuit: floating node
+
+WARNING: Node FLOAT is floating.
+
+WARNING: Less than two connections to node FLOAT.  This node is used by C2.
+.OP point found by inspection.
+N-Period=1
+Fourier components of V(out)
+DC component:0.383726
+
+Harmonic	Frequency	 Fourier 	Normalized	 Phase  	Normalized
+ Number 	  [Hz]   	Component	 Component	[degree]	Phase [deg]
+    1   	5.000e+02	2.065e-01	1.000e+00	  -93.04°	    0.00°
+    2   	1.000e+03	3.649e-02	1.767e-01	 -171.83°	  -78.79°
+    3   	1.500e+03	3.374e-02	1.634e-01	 -132.69°	  -39.65°
+    4   	2.000e+03	1.841e-02	8.912e-02	 -175.41°	  -82.37°
+    5   	2.500e+03	1.683e-02	8.150e-02	 -148.06°	  -55.02°
+    6   	3.000e+03	1.224e-02	5.926e-02	 -177.17°	  -84.14°
+    7   	3.500e+03	1.132e-02	5.482e-02	 -156.69°	  -63.65°
+    8   	4.000e+03	9.214e-03	4.462e-02	 -177.56°	  -84.52°
+    9   	4.500e+03	8.623e-03	4.175e-02	 -161.51°	  -68.47°
+Total Harmonic Distortion: 28.767977%(31.065197%)
+
+
+
+Date: Sat Oct 10 14:15:10 2026
+Total elapsed time: 0.010 seconds.
+
+tnom = 27
+temp = 27
+method = modified trap
+totiter = 232
+traniter = 232
+tranpoints = 117
+accept = 97
+rejected = 20
+matrix size = 4
+fillins = 0
+solver = Normal
+Matrix Compiler1: 64 bytes object code size  0.2/0.2/[0.2]
+Matrix Compiler2: 214 bytes object code size  0.3/0.3/[0.2]
+

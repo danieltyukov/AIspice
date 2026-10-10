@@ -1,0 +1,11 @@
+Circuit with a subcircuit that has no symbol
+VIN in 0 SINE(0 1 1k)
+R1 in a 1k
+XF1 a b myfilter
+R2 b 0 10k
+.subckt myfilter x y
+R1 x y 1k
+C1 y 0 1n
+.ends myfilter
+.tran 0 3m
+.end

@@ -1,0 +1,6 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "ce_bias.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "ce_bias.asc", "edits": [{"op": "set_value", "name": "R1", "value": "51k"}], "reason": "Collector at 6 V"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "ce_bias.asc", "specs": "vc = value_at(V(col), 0) = 6 +- 0.4"}}]},
+  {"answer": "For 6 V on the collector Rc must drop 6 V, so Ic is about 1.28 mA, the emitter sits near 1.28 V and the base near 1.95 V. With R2 at 10 kOhm that needs R1 of about 50 kOhm; the E24 value 51 kOhm gives V(col) close to 6.1 V in the operating point."}
+]

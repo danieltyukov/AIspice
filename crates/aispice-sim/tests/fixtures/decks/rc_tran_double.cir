@@ -1,0 +1,9 @@
+RC transient double
+* numdgt above 6 makes LTspice store every column as float64; plotwinsize=0
+* turns compression off.
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out 1k
+C1 out 0 1u
+.tran 0 5m 0 100u
+.options numdgt=7 plotwinsize=0
+.end

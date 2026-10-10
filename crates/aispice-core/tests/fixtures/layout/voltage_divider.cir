@@ -1,0 +1,6 @@
+Voltage divider
+V1 in 0 10
+R1 in out 10k
+R2 out 0 4.7k
+.op
+.end

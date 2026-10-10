@@ -1,0 +1,5 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "mystery.asc"}}]},
+  {"tools": [{"name": "simulate", "input": {"circuit": "mystery.asc", "measurements": ["fc = freq_at_db(V(out), -3.01)"]}}]},
+  {"answer": "It is a first-order RC high-pass filter: C1 (33 nF) in series from in to out and R1 (4.7 kOhm) from out to ground. Its -3 dB frequency is 1/(2 pi x 4.7k x 33n) = 1.03 kHz, which the AC simulation confirms. I did not change anything."}
+]

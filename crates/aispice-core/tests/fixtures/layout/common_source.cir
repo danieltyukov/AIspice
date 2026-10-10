@@ -1,0 +1,15 @@
+Common-source amplifier
+VDD vdd 0 15
+VIN in 0 SINE(0 50m 1k) AC 1
+C1 in g 1u
+R1 vdd g 1Meg
+R2 g 0 470k
+M1 d g s s BS170
+RD vdd d 4.7k
+RS s 0 1k
+CS s 0 47u
+C2 d out 1u
+RL out 0 100k
+.model BS170 NMOS(Level=1 Vto=1.8 Kp=0.12 Lambda=0.01)
+.tran 0 5m
+.end

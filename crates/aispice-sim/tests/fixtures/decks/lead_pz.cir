@@ -1,0 +1,8 @@
+Lead network pole-zero
+* Zero at -1/(R1 C1) = -1000 rad/s, pole at -(R1+R2)/(R1 R2 C1) = -2000 rad/s.
+V1 in 0 AC 1
+R1 in out 1k
+C1 in out 1u
+R2 out 0 1k
+.pz in 0 out 0 vol pz
+.end

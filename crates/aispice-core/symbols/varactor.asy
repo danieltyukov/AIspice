@@ -1,0 +1,20 @@
+Version 4
+SymbolType CELL
+LINE Normal 16 0 16 17
+LINE Normal 2 17 30 17
+LINE Normal 30 17 16 39
+LINE Normal 16 39 2 17
+LINE Normal 2 39 30 39
+LINE Normal 2 46 30 46
+LINE Normal 16 46 16 64
+WINDOW 0 24 0 Left 2
+WINDOW 3 24 64 Left 2
+SYMATTR Value D
+SYMATTR Prefix D
+SYMATTR Description Varactor diode
+PIN 16 0 NONE 8
+PINATTR PinName +
+PINATTR SpiceOrder 1
+PIN 16 64 NONE 8
+PINATTR PinName -
+PINATTR SpiceOrder 2

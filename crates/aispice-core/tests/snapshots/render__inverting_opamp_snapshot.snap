@@ -1,0 +1,78 @@
+---
+source: crates/aispice-core/tests/render.rs
+expression: "render(\"inverting_opamp\", &opts)"
+---
+<svg xmlns="http://www.w3.org/2000/svg" class="aispice-sch" viewBox="-29 49 766 435" width="766" height="435" xml:space="preserve">
+<style>
+.aispice-sch .bg{fill:var(--sch-bg, none)}
+.aispice-sch text{font-family:var(--sch-font, Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif);white-space:pre}
+.aispice-sch .wire,.aispice-sch .bustap{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:var(--sch-wire, #2b6cb0)}
+.aispice-sch .junction{fill:var(--sch-wire, #2b6cb0)}
+.aispice-sch .body{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:var(--sch-symbol, #1a202c)}
+.aispice-sch .fill,.aispice-sch .sym-text{fill:var(--sch-symbol, #1a202c)}
+.aispice-sch .attr,.aispice-sch .pin-label{fill:var(--sch-attr, #2d3748)}
+.aispice-sch .missing .body{stroke:var(--sch-missing, #c53030);stroke-dasharray:6 4}
+.aispice-sch .missing .sym-text,.aispice-sch .missing .fill{fill:var(--sch-missing, #c53030)}
+.aispice-sch .mark{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:var(--sch-flag, #1a202c)}
+.aispice-sch .label{fill:var(--sch-label, #1a202c)}
+.aispice-sch .directive{fill:var(--sch-directive, #1a202c);font-family:var(--sch-font-directive, Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif)}
+.aispice-sch .comment{fill:var(--sch-comment, #2c7a7b)}
+.aispice-sch .shape{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:var(--sch-shape, #718096)}
+.aispice-sch .pin{fill:none;stroke-width:1.5;stroke:var(--sch-pin, #c53030)}
+.aispice-sch .pin-dot{fill:var(--sch-pin, #c53030)}
+.aispice-sch .hl-box{fill:none;stroke:none}
+.aispice-sch .hl-added .body{stroke:var(--sch-added, #2f855a)}
+.aispice-sch .hl-added .attr,.aispice-sch .hl-added .sym-text,.aispice-sch .hl-added .fill{fill:var(--sch-added, #2f855a)}
+.aispice-sch .hl-added .hl-box{fill:var(--sch-added-bg, rgba(47,133,90,0.14))}
+.aispice-sch .hl-removed .body{stroke:var(--sch-removed, #c53030);stroke-dasharray:6 4}
+.aispice-sch .hl-removed .attr,.aispice-sch .hl-removed .sym-text,.aispice-sch .hl-removed .fill{fill:var(--sch-removed, #c53030)}
+.aispice-sch .hl-removed .hl-box{fill:var(--sch-removed-bg, rgba(197,48,48,0.12))}
+.aispice-sch .hl-changed .body{stroke:var(--sch-changed, #b7791f)}
+.aispice-sch .hl-changed .attr,.aispice-sch .hl-changed .sym-text,.aispice-sch .hl-changed .fill{fill:var(--sch-changed, #b7791f)}
+.aispice-sch .hl-changed .hl-box{fill:var(--sch-changed-bg, rgba(183,121,31,0.14))}
+</style>
+<rect class="bg" x="-29" y="49" width="766" height="435"/>
+<g class="wires">
+<polyline class="wire" data-wire="32,208,160,208" points="32,208 160,208"/>
+<polyline class="wire" data-wire="32,256,32,208" points="32,256 32,208"/>
+<polyline class="wire" data-wire="240,208,288,208" points="240,208 288,208"/>
+<polyline class="wire" data-wire="272,208,272,128" points="272,208 272,128"/>
+<polyline class="wire" data-wire="352,128,400,128" points="352,128 400,128"/>
+<polyline class="wire" data-wire="400,128,400,224" points="400,128 400,224"/>
+<polyline class="wire" data-wire="352,224,400,224" points="352,224 400,224"/>
+<polyline class="wire" data-wire="400,224,448,224" points="400,224 448,224"/>
+<polyline class="wire" data-wire="288,240,256,240" points="288,240 256,240"/>
+<polyline class="wire" data-wire="256,240,256,288" points="256,240 256,288"/>
+<polyline class="wire" data-wire="656,192,656,224" points="656,192 656,224"/>
+<polyline class="wire" data-wire="656,208,592,208" points="656,208 592,208"/>
+<polyline class="wire" data-wire="592,208,592,224" points="592,208 592,224"/>
+</g>
+<g class="symbols">
+<g class="symbol" data-inst="V1" data-symbol="voltage"><path class="body" d="M32 256L32 268M4 296A28 28 0 1 0 60 296A28 28 0 1 0 4 296ZM32 324L32 336M26 281L38 281M32 275L32 287M26 311L38 311"/><text class="attr name" x="56" y="263" font-size="20">V1</text><text class="attr value" x="56" y="343" font-size="20">SINE(0 0.1 1k)</text></g>
+<g class="symbol" data-inst="R1" data-symbol="res"><path class="body" d="M240 208L230 208L225 222L215 194L205 222L195 194L185 222L175 194L170 208L160 208"/><text class="attr name" x="200" y="187" font-size="20" text-anchor="middle">R1</text><text class="attr value" x="200" y="243" font-size="20" text-anchor="middle">1k</text></g>
+<g class="symbol" data-inst="R2" data-symbol="res"><path class="body" d="M352 128L342 128L337 142L327 114L317 142L307 114L297 142L287 114L282 128L272 128"/><text class="attr name" x="312" y="107" font-size="20" text-anchor="middle">R2</text><text class="attr value" x="312" y="163" font-size="20" text-anchor="middle">10k</text></g>
+<g class="symbol" data-inst="U1" data-symbol="OpAmps\opamp2"><path class="body" d="M296 188L296 260M296 188L344 224L296 260M344 224L352 224M288 208L296 208M288 240L296 240M301 208L309 208M301 240L309 240M305 236L305 244M320 192L320 206M320 256L320 242M317 213L323 213M320 210L320 216M317 235L323 235"/><text class="attr name" x="336" y="199" font-size="20">U1</text><text class="attr value" x="336" y="279" font-size="20">opamp2</text></g>
+<g class="symbol" data-inst="V2" data-symbol="voltage"><path class="body" d="M656 112L656 124M628 152A28 28 0 1 0 684 152A28 28 0 1 0 628 152ZM656 180L656 192M650 137L662 137M656 131L656 143M650 167L662 167"/><text class="attr name" x="680" y="119" font-size="20">V2</text><text class="attr value" x="680" y="199" font-size="20">15</text></g>
+<g class="symbol" data-inst="V3" data-symbol="voltage"><path class="body" d="M656 224L656 236M628 264A28 28 0 1 0 684 264A28 28 0 1 0 628 264ZM656 292L656 304M650 249L662 249M656 243L656 255M650 279L662 279"/><text class="attr name" x="680" y="231" font-size="20">V3</text><text class="attr value" x="680" y="311" font-size="20">15</text></g>
+</g>
+<g class="flags">
+<g class="flag ground" data-net="0"><path class="mark" d="M32 336V344M16 344H48M22 350H42M28 356H36"/></g>
+<g class="flag port" data-net="in"><path class="mark" d="M96 208L85 198L85 169.8L107 169.8L107 198Z"/><text class="label" x="96" y="190.9" font-size="20" text-anchor="middle" transform="rotate(-90 96 183.9)">in</text></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M256 288V296M240 296H272M246 302H266M252 308H260"/></g>
+<g class="flag" data-net="V+"><text class="label" x="320" y="195" font-size="20" transform="rotate(-90 320 188)">V+</text></g>
+<g class="flag" data-net="V-"><text class="label" x="320" y="267" font-size="20" text-anchor="end" transform="rotate(-90 320 260)">V-</text></g>
+<g class="flag port" data-net="out"><path class="mark" d="M448 213L489.6 213L499.6 224L489.6 235L448 235Z"/><text class="label" x="468.8" y="231" font-size="20" text-anchor="middle">out</text></g>
+<g class="flag" data-net="V+"><text class="label" x="656" y="115" font-size="20" transform="rotate(-90 656 108)">V+</text></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M592 224V232M576 232H608M582 238H602M588 244H596"/></g>
+<g class="flag" data-net="V-"><text class="label" x="656" y="315" font-size="20" text-anchor="end" transform="rotate(-90 656 308)">V-</text></g>
+</g>
+<g class="junctions">
+<circle class="junction" cx="272" cy="208" r="4"/>
+<circle class="junction" cx="400" cy="224" r="4"/>
+<circle class="junction" cx="656" cy="208" r="4"/>
+</g>
+<g class="texts">
+<text class="directive" x="96" y="407" font-size="20">.tran 3m</text>
+<text class="comment" x="96" y="447" font-size="20">Inverting amplifier, gain = -R2/R1 = -10</text>
+</g>
+</svg>

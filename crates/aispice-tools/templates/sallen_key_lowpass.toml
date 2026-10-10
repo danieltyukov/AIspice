@@ -1,0 +1,31 @@
+id = "sallen_key_lowpass"
+title = "Sallen-Key low-pass, 2nd order, unity gain (Butterworth)"
+category = "filters"
+description = "Second-order active low-pass built on a voltage follower. With R1 = R2 and C1 = 2 C2 the response is Butterworth (Q = 0.707): maximally flat, -3 dB at f0, then -40 dB per decade. Unity gain makes it insensitive to resistor tolerances; Q depends only on the capacitor ratio."
+analysis = ".ac dec 50 10 100k"
+specs = """
+f3db = bandwidth_3db(V(out)/V(in)) in 0.92k..1.12k
+pass = gain_db_at(V(out)/V(in), 10) in -0.1..0.1
+flat = peak_gain(V(out)/V(in)) <= 0.2
+stop = gain_db_at(V(out)/V(in), 10k) <= -34
+"""
+
+[[parameters]]
+part = "R1"
+controls = "Corner frequency; keep R1 = R2 so Q stays set by the capacitors"
+equation = "f0 = 1 / (2 pi sqrt(R1 R2 C1 C2))"
+
+[[parameters]]
+part = "R2"
+controls = "Corner frequency (with R1)"
+equation = "f0 = 1 / (2 pi sqrt(R1 R2 C1 C2))"
+
+[[parameters]]
+part = "C1"
+controls = "Q (the feedback capacitor, from the R1-R2 node to the output) and f0"
+equation = "Q = sqrt(R1 R2 C1 C2) / (C2 (R1 + R2)); with R1 = R2, Q = 0.5 sqrt(C1 / C2), so C1 = 2 C2 for Butterworth"
+
+[[parameters]]
+part = "C2"
+controls = "Q and f0 (the capacitor from the op-amp input to ground)"
+equation = "Q = 0.5 sqrt(C1 / C2) with R1 = R2"

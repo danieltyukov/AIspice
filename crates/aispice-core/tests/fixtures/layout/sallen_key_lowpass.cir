@@ -1,0 +1,14 @@
+Sallen-Key low-pass, unity gain, fc about 1 kHz
+VIN in 0 AC 1
+R1 in n1 10k
+R2 n1 n2 10k
+C1 n1 out 22n
+C2 n2 0 10n
+XU1 out n2 out opamp Aol=100K GBW=10Meg
+.subckt opamp 1 2 3
+G1 0 3 2 1 {Aol}
+R3 3 0 1
+C3 3 0 {Aol/GBW/6.28318530717959}
+.ends opamp
+.ac dec 50 10 100k
+.end

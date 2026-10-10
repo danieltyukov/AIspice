@@ -1,0 +1,17 @@
+Title: Divider op
+Date: Sat Oct 10 02:14:23 2026
+Plotname: DC transfer characteristic
+Flags: real
+No. Variables: 4
+No. Points: 1                 
+Variables:
+	0	sweep	voltage
+	1	IN	voltage
+	2	OUT	voltage
+	3	V1#branch	current
+Values:
+0	0.00000000e+00
+	1.00000000e+01
+	7.50000000e+00
+	-2.50000000e-03
+

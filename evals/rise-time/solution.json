@@ -1,0 +1,6 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "step.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "step.asc", "edits": [{"op": "set_value", "name": "C1", "value": "22n"}], "reason": "Rise time 50 us"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "step.asc", "specs": "tr = rise_time(V(out), 10, 90) in 45u..55u"}}]},
+  {"answer": "The 10-90% rise time of an RC network is 2.2 RC, so 50 us needs RC = 22.7 us. With R1 at 1 kOhm, C1 = 22 nF gives about 48 us, which the transient simulation confirms."}
+]

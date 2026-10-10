@@ -1,0 +1,9 @@
+Transformer from coupled inductors
+V1 in 0 SINE(0 10 1k)
+R1 in p1 10
+L1 p1 0 10m
+L2 s1 0 1m
+K1 L1 L2 0.99
+RL s1 0 100
+.tran 0 5m
+.end

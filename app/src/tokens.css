@@ -1,0 +1,362 @@
+/*
+ * Design tokens for aispice. The desktop app and the project site both import
+ * this file, so every colour, size, radius and duration is declared here once
+ * and the site cannot drift from the app it describes.
+ *
+ * Theme handling follows one rule: no token may have its only definition inside
+ * a media query. The full light palette sits on bare `:root`, and each dark
+ * block redefines only what changes. The three paths, in cascade order:
+ *   1. `:root` carries light, for everyone.
+ *   2. System dark applies, unless the user explicitly chose light.
+ *   3. An explicit dark choice applies last, so it wins over system light.
+ * The two dark blocks must stay identical; assets/brand/tools/check_tokens.mjs
+ * fails if they drift, and checks every contrast figure quoted below.
+ *
+ * The fonts are subsets, which the SIL Open Font License treats as modified
+ * versions, so they ship under renamed families with each upstream OFL.txt
+ * beside the file. assets/brand/tools/build_fonts.py rebuilds them.
+ */
+
+/*
+ * The sans is one variable file declared twice, for weights 400 to 500 and 600
+ * to 700. The browser downloads it once (same URL) and renders any weight in
+ * each range from it.
+ *
+ * The split is not cosmetic. Instrument Sans has no Greek and no micro sign,
+ * plus-minus, comparison operators, fractions or superscripts, which circuit
+ * text is full of, so two faces from Inter (a close match in proportions) fill
+ * exactly that gap under the same CSS family: "4.7 kΩ ± 1 %" and "τ ≥ 10 µs"
+ * render in one family instead of borrowing from whatever system font comes
+ * next. Inter is two static weights, and Chrome only combines faces whose
+ * weight and width ranges are identical. A single 400 700 main face beside a
+ * 400 500 symbol face matches neither, and every heading and paragraph falls
+ * back to the system font. Hence one main rule per symbol face, with the same
+ * ranges. The symbol faces come after the main ones so the browser checks
+ * them first for the characters in their range.
+ */
+@font-face {
+  font-family: 'aispice Sans';
+  src: url('./fonts/sans/aispice-sans.woff2') format('woff2');
+  font-weight: 400 500;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'aispice Sans';
+  src: url('./fonts/sans/aispice-sans.woff2') format('woff2');
+  font-weight: 600 700;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'aispice Sans';
+  src: url('./fonts/symbols/aispice-sans-symbols-400.woff2') format('woff2');
+  font-weight: 400 500;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+00A4, U+00A6, U+00AC, U+00B1-00B3, U+00B5, U+00B9, U+00BC-00BE, U+02BB-02BC, U+0394, U+03A9,
+    U+03B1-03B2, U+03B8, U+03BC, U+03C0, U+03C4, U+03C6, U+03C9, U+2000-200B, U+2010-2012,
+    U+2015-2017, U+201B, U+201F-2021, U+2023-2025, U+2027, U+202F, U+2031-2038, U+203B-2055,
+    U+2057, U+205F, U+2070-2071, U+2074-208E, U+2090-209C, U+2126, U+2206, U+221A, U+221E,
+    U+2248, U+2260, U+2264-2265;
+}
+
+@font-face {
+  font-family: 'aispice Sans';
+  src: url('./fonts/symbols/aispice-sans-symbols-600.woff2') format('woff2');
+  font-weight: 600 700;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+00A4, U+00A6, U+00AC, U+00B1-00B3, U+00B5, U+00B9, U+00BC-00BE, U+02BB-02BC, U+0394, U+03A9,
+    U+03B1-03B2, U+03B8, U+03BC, U+03C0, U+03C4, U+03C6, U+03C9, U+2000-200B, U+2010-2012,
+    U+2015-2017, U+201B, U+201F-2021, U+2023-2025, U+2027, U+202F, U+2031-2038, U+203B-2055,
+    U+2057, U+205F, U+2070-2071, U+2074-208E, U+2090-209C, U+2126, U+2206, U+221A, U+221E,
+    U+2248, U+2260, U+2264-2265;
+}
+
+@font-face {
+  font-family: 'aispice Mono';
+  src: url('./fonts/mono/aispice-mono.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /*
+   * Warm paper and cool ink, with one teal accent: the colour of the mark's
+   * tile. Contrast on the three grounds (--bg, --surface, --surface-2):
+   *   --text    16.6  17.8  15.5
+   *   --muted    5.9   6.3   5.5
+   *   --faint    4.9   5.3   4.6
+   *   --accent   4.9   5.3   4.6   (white on --accent 5.3)
+   * --faint is the lightest grey that clears 4.5:1 on all three, the same
+   * values owl-transfer settled on for the same reason: small secondary text
+   * is where contrast matters most.
+   */
+  --bg: #f8f7f4;
+  --surface: #ffffff;
+  --surface-2: #f1efea;
+  --border: #e6e3dc;
+  --border-strong: #d3cfc6;
+  --text: #17181a;
+  --muted: #5e6065;
+  --faint: #6a6c71;
+  --accent: #0d7a68;
+  --accent-hover: #0a6556;
+  --accent-tint: #e1f0ec;
+  --on-accent: #ffffff;
+
+  /*
+   * Status. A spec row is pass or fail, so green and red carry meaning and are
+   * never used for decoration. The green leans yellow and the accent leans
+   * blue, so a passing result never reads as a link. Every status colour is
+   * shown with a word ("pass", "fail"), never on its own.
+   */
+  --success: #2c7a33;
+  --warning: #8f5f00;
+  --danger: #b3372e;
+  --info: #2b5f9e;
+
+  /* Scrims: the text colour at a few percent, adding no hue. */
+  --hover: rgba(23, 24, 26, 0.045);
+  --pressed: rgba(23, 24, 26, 0.08);
+  --scrim: rgba(23, 24, 26, 0.4);
+  --shadow-pop: 0 10px 28px rgba(23, 24, 26, 0.18);
+
+  /*
+   * Schematic. Wires are blue and symbols graphite, so connectivity reads
+   * apart from parts at a glance; net labels take the accent; SPICE directives
+   * are amber and comments grey, the way an engineer scans a sheet for the
+   * simulation commands. Lines clear 3:1 on --sch-bg and text clears 4.5:1.
+   * The two highlight colours mark what an agent edit added or changed, and
+   * the tints are the halo drawn behind those parts.
+   */
+  --sch-bg: #ffffff;
+  --sch-grid: #e3e0d8;
+  --sch-wire: #1f62b8;
+  --sch-symbol: #3b3d42;
+  --sch-junction: #1f62b8;
+  --sch-text: #17181a;
+  --sch-label: #0d7a68;
+  --sch-directive: #8a4f0f;
+  --sch-comment: #6a6c71;
+  --sch-hl-added: #2c7a33;
+  --sch-hl-changed: #a35f00;
+  --sch-hl-added-tint: rgba(44, 122, 51, 0.14);
+  --sch-hl-changed-tint: rgba(163, 95, 0, 0.14);
+
+  /*
+   * Waveforms. Eight trace colours in a fixed order: a plot takes them in
+   * sequence and never cycles. The order is what keeps neighbours apart: in
+   * both themes each adjacent pair is at least 22 apart in OKLab (x100) and at
+   * least 12.6 apart under simulated protanopia and deuteranopia, and the first
+   * three stay at least 18.6 and 13.6 apart as every pair, which covers the
+   * common two- and three-trace plot. Every trace clears 3:1 on --plot-bg
+   * (3.6 light, 5.3 dark). The first trace is the accent's hue, so a
+   * single-trace plot looks like the rest of the interface.
+   */
+  --plot-bg: #ffffff;
+  --plot-grid: #ebe8e1;
+  --plot-axis: #6a6c71;
+  --plot-cursor: #17181a;
+  --plot-1: #089782;
+  --plot-2: #d35f03;
+  --plot-3: #3d84ea;
+  --plot-4: #de4e4b;
+  --plot-5: #8f6ce0;
+  --plot-6: #ae7c02;
+  --plot-7: #ca549d;
+  --plot-8: #459831;
+
+  /* Two radii: 6px for controls, 10px for panels. */
+  --r-control: 6px;
+  --r-panel: 10px;
+
+  /* A 4px base. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  --dur-quick: 100ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease: cubic-bezier(0.165, 0.84, 0.44, 1);
+
+  --font-sans: 'aispice Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'aispice Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 14px base: a three-pane tool with a netlist and a chat beside the
+     schematic is dense, and every other step is measured from it. */
+  --fs-micro: 11px;
+  --fs-mini: 12px;
+  --fs-small: 13px;
+  --fs-base: 14px;
+  --fs-large: 16px;
+  --fs-h2: 19px;
+  --fs-h1: 24px;
+  --lh-ui: 1.45;
+  --lh-prose: 1.6;
+  /* Eyebrow labels in capitals get air; headings get pulled in a little,
+     because Instrument Sans is set wide. */
+  --ls-micro: 0.08em;
+  --ls-h2: -0.015em;
+  --ls-h1: -0.022em;
+
+  --row-h: 32px;
+  --titlebar-h: 36px;
+  --statusbar-h: 26px;
+  --sidebar-w: 240px;
+
+  color-scheme: light;
+}
+
+/*
+ * Dark. Contrast on --bg, --surface, --surface-2:
+ *   --text    15.2  14.1  13.2
+ *   --muted    6.8   6.3   5.9
+ *   --faint    5.2   4.9   4.6
+ *   --accent   8.2   7.6   7.1   (--on-accent on --accent 8.2)
+ * The accent is a lighter teal, light enough that its readable foreground is
+ * the page ground rather than white.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #111214;
+    --surface: #191a1d;
+    --surface-2: #1f2024;
+    --border: #2a2b30;
+    --border-strong: #3a3b41;
+    --text: #e9e7e2;
+    --muted: #9a9ba1;
+    --faint: #86878e;
+    --accent: #3fbfa5;
+    --accent-hover: #5fd0b8;
+    --accent-tint: #14302a;
+    --on-accent: #111214;
+    --success: #74c27b;
+    --warning: #e0a64a;
+    --danger: #ec7f75;
+    --info: #7fb0ea;
+    --hover: rgba(233, 231, 226, 0.06);
+    --pressed: rgba(233, 231, 226, 0.1);
+    --scrim: rgba(0, 0, 0, 0.6);
+    --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.5);
+    --sch-bg: #16171a;
+    --sch-grid: #2a2b30;
+    --sch-wire: #7aa7d6;
+    --sch-symbol: #cfccc5;
+    --sch-junction: #7aa7d6;
+    --sch-text: #e9e7e2;
+    --sch-label: #4cc9ae;
+    --sch-directive: #e0a64a;
+    --sch-comment: #8f9097;
+    --sch-hl-added: #74c27b;
+    --sch-hl-changed: #e5b04a;
+    --sch-hl-added-tint: rgba(116, 194, 123, 0.16);
+    --sch-hl-changed-tint: rgba(229, 176, 74, 0.16);
+    --plot-bg: #16171a;
+    --plot-grid: #26272c;
+    --plot-axis: #8f9097;
+    --plot-cursor: #e9e7e2;
+    --plot-1: #0baa92;
+    --plot-2: #e26b1b;
+    --plot-3: #4a91f8;
+    --plot-4: #ec5b57;
+    --plot-5: #9b79ee;
+    --plot-6: #bd8703;
+    --plot-7: #d861aa;
+    --plot-8: #57a943;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #111214;
+  --surface: #191a1d;
+  --surface-2: #1f2024;
+  --border: #2a2b30;
+  --border-strong: #3a3b41;
+  --text: #e9e7e2;
+  --muted: #9a9ba1;
+  --faint: #86878e;
+  --accent: #3fbfa5;
+  --accent-hover: #5fd0b8;
+  --accent-tint: #14302a;
+  --on-accent: #111214;
+  --success: #74c27b;
+  --warning: #e0a64a;
+  --danger: #ec7f75;
+  --info: #7fb0ea;
+  --hover: rgba(233, 231, 226, 0.06);
+  --pressed: rgba(233, 231, 226, 0.1);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --sch-bg: #16171a;
+  --sch-grid: #2a2b30;
+  --sch-wire: #7aa7d6;
+  --sch-symbol: #cfccc5;
+  --sch-junction: #7aa7d6;
+  --sch-text: #e9e7e2;
+  --sch-label: #4cc9ae;
+  --sch-directive: #e0a64a;
+  --sch-comment: #8f9097;
+  --sch-hl-added: #74c27b;
+  --sch-hl-changed: #e5b04a;
+  --sch-hl-added-tint: rgba(116, 194, 123, 0.16);
+  --sch-hl-changed-tint: rgba(229, 176, 74, 0.16);
+  --plot-bg: #16171a;
+  --plot-grid: #26272c;
+  --plot-axis: #8f9097;
+  --plot-cursor: #e9e7e2;
+  --plot-1: #0baa92;
+  --plot-2: #e26b1b;
+  --plot-3: #4a91f8;
+  --plot-4: #ec5b57;
+  --plot-5: #9b79ee;
+  --plot-6: #bd8703;
+  --plot-7: #d861aa;
+  --plot-8: #57a943;
+  color-scheme: dark;
+}
+
+/* A finger needs more than 32px. */
+@media (pointer: coarse) {
+  :root {
+    --row-h: 44px;
+  }
+}
+
+/*
+ * Reduced motion. The duration tokens drop to near zero, so anything timed
+ * with them stops moving, and the blanket rule catches animations that are not.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-quick: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,306 @@
+name: Release
+
+# On a v* tag: build the desktop app for Linux (deb, AppImage), Windows (NSIS
+# installer, MSI) and macOS (universal dmg), and the command-line binary for
+# each, then attach everything to a GitHub Release on this public repository.
+#
+# Standard GitHub-hosted runners throughout: Actions minutes are free and
+# unmetered on a public repository with standard runners, and a larger runner
+# bills even on a public one.
+
+on:
+  push:
+    tags: ['v*']
+  # A dry run from any branch: builds every bundle and uploads them as
+  # workflow artifacts, but publishes nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The asset names the site and the README link to. They carry no version, so
+  # `releases/latest/download/<name>` keeps working across releases; the version
+  # is the release title and the tag.
+  DEB_NAME: aispice_amd64.deb
+  APPIMAGE_NAME: aispice_x86_64.AppImage
+  EXE_NAME: aispice_x64-setup.exe
+  MSI_NAME: aispice_x64.msi
+  DMG_NAME: aispice_universal.dmg
+  CLI_LINUX: aispice-cli-x86_64-linux.tar.gz
+  CLI_WINDOWS: aispice-cli-x86_64-windows.zip
+  CLI_MACOS: aispice-cli-universal-macos.tar.gz
+  # Cargo puts bundles under the workspace target directory, which is at the
+  # repository root because the workspace manifest is.
+  BUNDLE_DIR: target/release/bundle
+
+jobs:
+  linux:
+    name: Linux
+    # 22.04, deliberately. glibc pins forward: a binary built on 24.04 fails to
+    # start on 22.04 with a missing-symbol error, while one built here runs on
+    # both. 22.04 is the oldest image that still ships WebKitGTK 4.1.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # librsvg2-dev is only needed for the AppImage, and its absence is not
+      # obvious: linuxdeploy's GTK plugin fails while the deb still builds.
+      - name: Install the WebKitGTK toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Cache the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-release-ubuntu-22.04-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-ubuntu-22.04-
+
+      - run: npm ci
+
+      # The cache restores target/, which holds the bundle directory, and Tauri
+      # puts the version in each file name; without the rm the second release
+      # finds the first one's deb beside the new one.
+      - name: Build the bundles
+        working-directory: app
+        run: |
+          set -euo pipefail
+          rm -rf "../$BUNDLE_DIR"
+          npx tauri build --bundles deb,appimage
+
+      - name: Build the CLI
+        run: cargo build --release -p aispice --locked
+
+      - name: Collect under stable names
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p out
+          take() {
+            local dest="$1"; shift
+            if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+              echo "expected exactly one file for $dest, found $#" >&2
+              find "$BUNDLE_DIR" -maxdepth 2 -type f >&2 || true
+              exit 1
+            fi
+            cp "$1" "out/$dest"
+          }
+          take "$DEB_NAME" "$BUNDLE_DIR"/deb/*.deb
+          take "$APPIMAGE_NAME" "$BUNDLE_DIR"/appimage/*.AppImage
+          tar -C target/release -czf "out/$CLI_LINUX" aispice
+          ls -la out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-release-windows-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-windows-
+
+      - run: npm ci
+
+      - name: Build the installers
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "../$BUNDLE_DIR"
+          npx tauri build --bundles nsis,msi
+
+      - name: Build the CLI
+        run: cargo build --release -p aispice --locked
+
+      - name: Collect under stable names
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p out
+          take() {
+            local dest="$1"; shift
+            if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+              echo "expected exactly one file for $dest, found $#" >&2
+              exit 1
+            fi
+            cp "$1" "out/$dest"
+          }
+          take "$EXE_NAME" "$BUNDLE_DIR"/nsis/*.exe
+          take "$MSI_NAME" "$BUNDLE_DIR"/msi/*.msi
+          (cd target/release && 7z a "../../out/$CLI_WINDOWS" aispice.exe > /dev/null)
+          ls -la out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Both architectures, so one dmg and one CLI archive run on Intel and
+      # Apple silicon alike.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-release-macos-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-macos-
+
+      - run: npm ci
+
+      # Not notarised: there is no Apple developer account behind this project.
+      # The release notes say how to open it the first time.
+      - name: Build the dmg
+        working-directory: app
+        run: |
+          set -euo pipefail
+          rm -rf ../target/universal-apple-darwin/release/bundle
+          npx tauri build --target universal-apple-darwin --bundles dmg
+
+      - name: Build the CLI
+        run: |
+          set -euo pipefail
+          cargo build --release -p aispice --locked --target aarch64-apple-darwin
+          cargo build --release -p aispice --locked --target x86_64-apple-darwin
+          mkdir -p cli
+          lipo -create -output cli/aispice \
+            target/aarch64-apple-darwin/release/aispice \
+            target/x86_64-apple-darwin/release/aispice
+
+      - name: Collect under stable names
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p out
+          dmgs=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          if [ "${#dmgs[@]}" -ne 1 ]; then
+            echo "expected exactly one dmg, found ${#dmgs[@]}" >&2
+            exit 1
+          fi
+          cp "${dmgs[0]}" "out/$DMG_NAME"
+          tar -C cli -czf "out/$CLI_MACOS" aispice
+          ls -la out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: Publish
+    needs: [linux, windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: assets
+        run: sha256sum * > SHA256SUMS
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          notes=$(mktemp)
+          cat > "$notes" <<'BODY'
+          Built by `.github/workflows/release.yml` on GitHub-hosted runners from
+          the commit this tag points at. The build log is public, and
+          `SHA256SUMS` lists every file's checksum.
+
+          Desktop app:
+          - `aispice_x86_64.AppImage`, Linux: `chmod +x` and run it.
+          - `aispice_amd64.deb`, Debian and Ubuntu: `sudo apt install ./aispice_amd64.deb`
+          - `aispice_x64-setup.exe`, Windows. Installs for the current user with
+            no admin prompt. It is not code-signed, so SmartScreen asks once:
+            More info, then Run anyway. `aispice_x64.msi` is the same build for
+            MSI deployment.
+          - `aispice_universal.dmg`, macOS (Intel and Apple silicon). Not
+            notarised: the first time, right-click the app and choose Open.
+
+          Command line and MCP server (`aispice`):
+          - `aispice-cli-x86_64-linux.tar.gz`
+          - `aispice-cli-x86_64-windows.zip`
+          - `aispice-cli-universal-macos.tar.gz`
+
+          Put the binary on your PATH, then `aispice doctor` checks simulators
+          and keys, and `claude mcp add aispice -- aispice mcp` connects it to
+          Claude Code.
+          BODY
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file "$notes" \
+            --generate-notes \
+            --verify-tag \
+            assets/*

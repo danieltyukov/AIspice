@@ -1,0 +1,14 @@
+# Check out text with LF everywhere, so multi-line strings in the sources and
+# tests are the same on Windows as on Linux and macOS.
+* text=auto eol=lf
+
+# Circuit files and simulator output stay byte for byte as committed: LTspice
+# writes CRLF and UTF-16, and the tests compare these files exactly.
+*.asc -text
+*.asy -text
+*.net -text
+*.cir -text
+*.lib -text
+*.log -text
+*.specs -text
+*.raw binary

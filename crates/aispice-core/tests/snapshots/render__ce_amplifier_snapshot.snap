@@ -1,0 +1,86 @@
+---
+source: crates/aispice-core/tests/render.rs
+expression: "render(\"ce_amplifier\", &RenderOptions::default())"
+---
+<svg xmlns="http://www.w3.org/2000/svg" class="aispice-sch" viewBox="-61 8 782 544" width="782" height="544" xml:space="preserve">
+<style>
+.aispice-sch .bg{fill:#ffffff}
+.aispice-sch text{font-family:Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif;white-space:pre}
+.aispice-sch .wire,.aispice-sch .bustap{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#2b6cb0}
+.aispice-sch .junction{fill:#2b6cb0}
+.aispice-sch .body{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#1a202c}
+.aispice-sch .fill,.aispice-sch .sym-text{fill:#1a202c}
+.aispice-sch .attr,.aispice-sch .pin-label{fill:#2d3748}
+.aispice-sch .missing .body{stroke:#c53030;stroke-dasharray:6 4}
+.aispice-sch .missing .sym-text,.aispice-sch .missing .fill{fill:#c53030}
+.aispice-sch .mark{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#1a202c}
+.aispice-sch .label{fill:#1a202c}
+.aispice-sch .directive{fill:#1a202c;font-family:Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif}
+.aispice-sch .comment{fill:#2c7a7b}
+.aispice-sch .shape{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#718096}
+.aispice-sch .pin{fill:none;stroke-width:1.5;stroke:#c53030}
+.aispice-sch .pin-dot{fill:#c53030}
+.aispice-sch .hl-box{fill:none;stroke:none}
+.aispice-sch .hl-added .body{stroke:#2f855a}
+.aispice-sch .hl-added .attr,.aispice-sch .hl-added .sym-text,.aispice-sch .hl-added .fill{fill:#2f855a}
+.aispice-sch .hl-added .hl-box{fill:rgba(47,133,90,0.14)}
+.aispice-sch .hl-removed .body{stroke:#c53030;stroke-dasharray:6 4}
+.aispice-sch .hl-removed .attr,.aispice-sch .hl-removed .sym-text,.aispice-sch .hl-removed .fill{fill:#c53030}
+.aispice-sch .hl-removed .hl-box{fill:rgba(197,48,48,0.12)}
+.aispice-sch .hl-changed .body{stroke:#b7791f}
+.aispice-sch .hl-changed .attr,.aispice-sch .hl-changed .sym-text,.aispice-sch .hl-changed .fill{fill:#b7791f}
+.aispice-sch .hl-changed .hl-box{fill:rgba(183,121,31,0.14)}
+</style>
+<rect class="bg" x="-61" y="8" width="782" height="544"/>
+<g class="wires">
+<polyline class="wire" data-wire="0,256,144,256" points="0,256 144,256"/>
+<polyline class="wire" data-wire="0,288,0,256" points="0,288 0,256"/>
+<polyline class="wire" data-wire="208,256,240,256" points="208,256 240,256"/>
+<polyline class="wire" data-wire="240,160,240,304" points="240,160 240,304"/>
+<polyline class="wire" data-wire="240,256,304,256" points="240,256 304,256"/>
+<polyline class="wire" data-wire="368,160,368,208" points="368,160 368,208"/>
+<polyline class="wire" data-wire="368,192,400,192" points="368,192 400,192"/>
+<polyline class="wire" data-wire="464,192,528,192" points="464,192 528,192"/>
+<polyline class="wire" data-wire="528,192,576,192" points="528,192 576,192"/>
+<polyline class="wire" data-wire="528,192,528,208" points="528,192 528,208"/>
+<polyline class="wire" data-wire="368,304,368,336" points="368,304 368,336"/>
+<polyline class="wire" data-wire="368,320,448,320" points="368,320 448,320"/>
+<polyline class="wire" data-wire="448,320,448,336" points="448,320 448,336"/>
+</g>
+<g class="symbols">
+<g class="symbol" data-inst="V2" data-symbol="Misc\signal"><path class="body" d="M0 288L0 300M-28 328A28 28 0 1 0 28 328A28 28 0 1 0 -28 328ZM0 356L0 368M0 328A10 10 0 0 0 -20 328M0 328A10 10 0 0 0 20 328M-4 309L4 309M0 305L0 313M-4 348L4 348"/><text class="attr name" x="24" y="295" font-size="20">V2</text><text class="attr value" x="24" y="375" font-size="20">SINE(0 10m 1k)</text></g>
+<g class="symbol" data-inst="C1" data-symbol="cap"><path class="body" d="M208 256L182 256M182 240L182 272M170 240L170 272M170 256L144 256"/><text class="attr name" x="176" y="235" font-size="20" text-anchor="middle">C1</text><text class="attr value" x="176" y="291" font-size="20" text-anchor="middle">10u</text></g>
+<g class="symbol" data-inst="R1" data-symbol="res"><path class="body" d="M240 80L240 90L254 95L226 105L254 115L226 125L254 135L226 145L240 150L240 160"/><text class="attr name" x="260" y="111" font-size="20">R1</text><text class="attr value" x="260" y="147" font-size="20">47k</text></g>
+<g class="symbol" data-inst="R2" data-symbol="res"><path class="body" d="M240 304L240 314L254 319L226 329L254 339L226 349L254 359L226 369L240 374L240 384"/><text class="attr name" x="260" y="335" font-size="20">R2</text><text class="attr value" x="260" y="371" font-size="20">10k</text></g>
+<g class="symbol" data-inst="Q1" data-symbol="npn"><path class="body" d="M304 256L324 256M324 232L324 280M324 244L368 220L368 208M324 268L368 292L368 304M346 280L334 279L339 270L346 280"/><path class="body fill" d="M334 279L339 270L346 280Z"/><text class="attr name" x="360" y="247" font-size="20">Q1</text><text class="attr value" x="360" y="283" font-size="20">2N3904</text></g>
+<g class="symbol" data-inst="R3" data-symbol="res"><path class="body" d="M368 80L368 90L382 95L354 105L382 115L354 125L382 135L354 145L368 150L368 160"/><text class="attr name" x="388" y="111" font-size="20">R3</text><text class="attr value" x="388" y="147" font-size="20">4k7</text></g>
+<g class="symbol" data-inst="R4" data-symbol="res"><path class="body" d="M368 336L368 346L382 351L354 361L382 371L354 381L382 391L354 401L368 406L368 416"/><text class="attr name" x="388" y="367" font-size="20">R4</text><text class="attr value" x="388" y="403" font-size="20">1k</text></g>
+<g class="symbol" data-inst="C3" data-symbol="cap"><path class="body" d="M448 336L448 362M432 362L464 362M432 374L464 374M448 374L448 400"/><text class="attr name" x="456" y="351" font-size="20">C3</text><text class="attr value" x="456" y="399" font-size="20">100u</text></g>
+<g class="symbol" data-inst="C2" data-symbol="cap"><path class="body" d="M400 192L426 192M426 208L426 176M438 208L438 176M438 192L464 192"/><text class="attr name" x="432" y="171" font-size="20" text-anchor="middle">C2</text><text class="attr value" x="432" y="227" font-size="20" text-anchor="middle">10u</text></g>
+<g class="symbol" data-inst="R5" data-symbol="res"><path class="body" d="M528 208L528 218L542 223L514 233L542 243L514 253L542 263L514 273L528 278L528 288"/><text class="attr name" x="548" y="239" font-size="20">R5</text><text class="attr value" x="548" y="275" font-size="20">10k</text></g>
+<g class="symbol" data-inst="V1" data-symbol="voltage"><path class="body" d="M640 80L640 92M612 120A28 28 0 1 0 668 120A28 28 0 1 0 612 120ZM640 148L640 160M634 105L646 105M640 99L640 111M634 135L646 135"/><text class="attr name" x="664" y="87" font-size="20">V1</text><text class="attr value" x="664" y="167" font-size="20">12</text></g>
+</g>
+<g class="flags">
+<g class="flag ground" data-net="0"><path class="mark" d="M0 368V376M-16 376H16M-10 382H10M-4 388H4"/></g>
+<g class="flag" data-net="in"><text class="label" x="64" y="249" font-size="20" text-anchor="middle">in</text></g>
+<g class="flag" data-net="vcc"><text class="label" x="240" y="83" font-size="20" transform="rotate(-90 240 76)">vcc</text></g>
+<g class="flag" data-net="vcc"><text class="label" x="368" y="83" font-size="20" transform="rotate(-90 368 76)">vcc</text></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M240 384V392M224 392H256M230 398H250M236 404H244"/></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M368 416V424M352 424H384M358 430H378M364 436H372"/></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M448 400V408M432 408H464M438 414H458M444 420H452"/></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M528 288V296M512 296H544M518 302H538M524 308H532"/></g>
+<g class="flag" data-net="out"><text class="label" x="580" y="199" font-size="20">out</text></g>
+<g class="flag" data-net="vcc"><text class="label" x="640" y="83" font-size="20" transform="rotate(-90 640 76)">vcc</text></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M640 160V168M624 168H656M630 174H650M636 180H644"/></g>
+</g>
+<g class="junctions">
+<circle class="junction" cx="240" cy="256" r="4"/>
+<circle class="junction" cx="368" cy="192" r="4"/>
+<circle class="junction" cx="368" cy="320" r="4"/>
+<circle class="junction" cx="528" cy="192" r="4"/>
+</g>
+<g class="texts">
+<text class="directive" x="64" y="463" font-size="20">.tran 0 5m 0 10u</text>
+<text class="comment" x="64" y="491" font-size="20"><tspan x="64" y="491">Common-emitter amplifier</tspan><tspan x="64" y="515">Midband gain is about -R3/R4 with C3 removed</tspan></text>
+</g>
+</svg>

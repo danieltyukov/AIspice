@@ -1,0 +1,18 @@
+id = "floating-node"
+title = "Fix a divider with a floating resistor"
+difficulty = "easy"
+prompt = """
+divider.asc should give 5 V at node mid from the 10 V source, but the simulation shows 10 V there. Find the wiring fault and fix it without changing any component values.
+"""
+circuit = "divider.asc"
+analysis = ".op"
+specs = """
+vmid = value_at(V(mid), 0) = 5 +- 0.05
+"""
+max_steps = 8
+constraints = [
+  { kind = "lint_clean" },
+  { kind = "value", name = "R1", equals = "10k" },
+  { kind = "value", name = "R2", equals = "10k" },
+  { kind = "max_parts", count = 3 },
+]

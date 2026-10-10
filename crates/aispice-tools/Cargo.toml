@@ -1,0 +1,33 @@
+[package]
+name = "aispice-tools"
+description = "The aispice tool set: projects, history, and the typed tools shared by the desktop app, the CLI and the MCP server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aispice-core.workspace = true
+aispice-agent.workspace = true
+aispice-sim.workspace = true
+async-trait = "0.1"
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util = "0.7"
+futures.workspace = true
+base64 = "0.22"
+tempfile.workspace = true
+toml = "1"
+tracing.workspace = true
+
+[dev-dependencies]
+aispice-agent = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

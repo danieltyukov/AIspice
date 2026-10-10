@@ -1,0 +1,11 @@
+Xyce meas
+* Xyce prints .measure results on stdout and into xyce_meas.cir.mt0.
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out 1k
+C1 out 0 1u
+.tran 10u 5m
+.measure tran vmax MAX V(out)
+.measure tran vend FIND V(out) AT=2m
+.measure tran trise TRIG V(out) VAL=0.1 RISE=1 TARG V(out) VAL=0.9 RISE=1
+.measure tran never FIND V(out) WHEN V(out)=5
+.end

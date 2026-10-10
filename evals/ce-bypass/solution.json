@@ -1,0 +1,10 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "ce.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "ce.asc", "edits": [
+    {"op": "add_component", "symbol": "cap", "name": "Ce", "value": "100u", "near": "Re"},
+    {"op": "connect", "from": "Ce.A", "to": "Re.A"},
+    {"op": "connect_to_net", "pin": "Ce.B", "net": "0"}
+  ], "reason": "Bypass the emitter resistor"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "ce.asc", "specs": "gain = gain_db_at(V(out)/V(in), 1k) >= 30"}}]},
+  {"answer": "I added Ce = 100 uF from the emitter to ground, in parallel with Re. At 1 kHz its reactance is about 1.6 ohm, so the emitter is at AC ground and the gain rises from about 13 dB to over 30 dB. The bias resistors are unchanged."}
+]

@@ -1,0 +1,24 @@
+id = "noninverting_amplifier"
+title = "Non-inverting amplifier"
+category = "amplifiers"
+description = "Op-amp gain stage with gain 1 + R2/R1 and the input impedance of the op-amp itself, so it does not load the source. With R2 shorted and R1 removed it becomes a unity-gain buffer. Closed-loop bandwidth is GBW divided by the gain."
+analysis = ".ac dec 50 10 10Meg"
+specs = """
+gain = gain_db_at(V(out)/V(in), 1k) = 20.83 +- 0.3
+bw = bandwidth_3db(V(out)/V(in)) in 600k..1.3Meg
+"""
+
+[[parameters]]
+part = "R2"
+controls = "Gain (the feedback resistor from the output to the inverting input)"
+equation = "G = 1 + R2 / R1"
+
+[[parameters]]
+part = "R1"
+controls = "Gain (the resistor from the inverting input to ground); with R2 it also loads the output"
+equation = "G = 1 + R2 / R1; the output drives R1 + R2"
+
+[[parameters]]
+part = "U1"
+controls = "Bandwidth, through the op-amp's gain-bandwidth product (GBW)"
+equation = "f3dB = GBW / (1 + R2 / R1)"

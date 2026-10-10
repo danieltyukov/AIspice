@@ -1,0 +1,7 @@
+* divider.asc
+V1 N001 0 10
+R§top N001 out 1k
+R§load out 0 3k
+.op
+.backanno
+.end

@@ -1,34 +1,21 @@
 {
-  "name": "aispice",
-  "version": "0.1.0",
+  "name": "aispice-workspace",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "app",
+    "site"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "tauri": "tauri",
-    "test": "vitest"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-fs": "^2.4.5",
-    "esbuild": "^0.27.4",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
-    "@testing-library/react": "^16.3.0",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^6.0.1",
-    "jsdom": "^26.1.0",
-    "typescript": "^5.9.3",
-    "vite": "^8.0.0",
-    "vitest": "^5.0.3"
+    "dev": "npm run dev -w app",
+    "desktop": "npm run tauri -w app -- dev",
+    "build": "npm run build -w app",
+    "test": "npm test -w app",
+    "check": "npm run check:rust && npm run check:app",
+    "check:rust": "cargo fmt --all --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "check:app": "npm run typecheck -w app && npm run lint -w app && npm test -w app && npm run build -w site",
+    "site:dev": "npm run dev -w site",
+    "site:build": "npm run build -w site",
+    "site:preview": "npm run preview -w site"
   }
 }

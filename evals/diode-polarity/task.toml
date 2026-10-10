@@ -1,0 +1,17 @@
+id = "diode-polarity"
+title = "Fix a rectifier with the diode in backwards"
+difficulty = "medium"
+prompt = """
+rectifier.asc is a half-wave rectifier: a 5 V peak, 1 kHz sine through a 1N4148 diode into a 1 kΩ load. The output on node out should be positive half-cycles peaking at about 4.3 V, but it comes out negative. Fix the circuit.
+"""
+circuit = "rectifier.asc"
+analysis = ".tran 10u 5m"
+specs = """
+vpk = max(V(out)) in 3.9..4.6
+vmin = min(V(out)) >= -0.05
+"""
+max_steps = 10
+constraints = [
+  { kind = "part_count", prefix = "D", min = 1, max = 1 },
+  { kind = "max_parts", count = 3 },
+]

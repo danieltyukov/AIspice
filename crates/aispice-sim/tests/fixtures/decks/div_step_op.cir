@@ -1,0 +1,9 @@
+Divider stepped op
+* R1 = 1k gives 7.5 V, R1 = 3k gives 5 V.
+V1 in 0 10
+R1 in out {R}
+R2 out 0 3k
+.param R=1k
+.step param R list 1k 3k
+.op
+.end

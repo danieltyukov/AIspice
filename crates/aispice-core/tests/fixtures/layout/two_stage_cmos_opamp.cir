@@ -1,0 +1,19 @@
+Two-stage CMOS op-amp, open loop
+VDD vdd 0 3.3
+VINP inp 0 DC 1.65 AC 1
+VINN inn 0 DC 1.65
+M1 n1 inn tail 0 NMOS1 W=10u L=1u
+M2 n2 inp tail 0 NMOS1 W=10u L=1u
+M3 n1 n1 vdd vdd PMOS1 W=20u L=1u
+M4 n2 n1 vdd vdd PMOS1 W=20u L=1u
+M5 tail bias 0 0 NMOS1 W=20u L=1u
+M6 out n2 vdd vdd PMOS1 W=80u L=1u
+M7 out bias 0 0 NMOS1 W=40u L=1u
+M8 bias bias 0 0 NMOS1 W=20u L=1u
+IBIAS vdd bias 20u
+CC n2 out 2p
+CL out 0 5p
+.model NMOS1 NMOS(Level=1 Vto=0.7 Kp=110u Lambda=0.04)
+.model PMOS1 PMOS(Level=1 Vto=-0.7 Kp=50u Lambda=0.05)
+.ac dec 20 1 100Meg
+.end

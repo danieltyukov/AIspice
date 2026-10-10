@@ -1,0 +1,11 @@
+ngspice meas
+* ngspice prints .meas results on stdout.
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out 1k
+C1 out 0 1u
+.tran 10u 5m
+.meas tran vmax MAX V(out)
+.meas tran vend FIND V(out) AT=2m
+.meas tran trise TRIG V(out) VAL=0.1 RISE=1 TARG V(out) VAL=0.9 RISE=1
+.meas tran never FIND V(out) WHEN V(out)=5
+.end

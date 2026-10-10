@@ -1,0 +1,30 @@
+id = "transimpedance_amplifier"
+title = "Photodiode transimpedance amplifier"
+category = "sensors"
+description = "Current-to-voltage converter for a photodiode, modelled as a current source I1 with its junction capacitance Cd. The photodiode sits at zero bias on the virtual ground and the output is Rf times the photocurrent. Cf across Rf is needed for stability: Cd adds a zero to the noise gain, and without Cf the response peaks or rings. Specs in dB are of V(out) for 1 A of AC current, so 100 dB means 100 kV/A; the peaking spec is relative to that midband value."
+analysis = ".ac dec 50 10 100Meg"
+specs = """
+zt = gain_db_at(V(out), 1k) = 100 +- 0.3
+bw = bandwidth_3db(V(out)) in 500k..1.4Meg
+peaking = peak_gain(V(out)/100k) <= 1
+"""
+
+[[parameters]]
+part = "Rf"
+controls = "Transimpedance gain; larger Rf also lowers the bandwidth"
+equation = "V(out) = Rf I1"
+
+[[parameters]]
+part = "Cf"
+controls = "Bandwidth and phase margin (the feedback capacitor)"
+equation = "f3dB is about 1 / (2 pi Rf Cf) when Cf is at least the value for 45 degrees of phase margin, Cf = sqrt(Cd / (2 pi Rf GBW))"
+
+[[parameters]]
+part = "Cd"
+controls = "Photodiode junction capacitance plus the op-amp input capacitance: set it to the real sensor's value"
+equation = "larger Cd needs a larger Cf: Cf = sqrt(Cd / (2 pi Rf GBW))"
+
+[[parameters]]
+part = "U1"
+controls = "The op-amp's gain-bandwidth product limits the achievable bandwidth"
+equation = "f3dB at most about sqrt(GBW / (2 pi Rf (Cd + Cf)))"

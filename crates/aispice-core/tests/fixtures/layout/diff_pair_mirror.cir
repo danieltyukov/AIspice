@@ -1,0 +1,15 @@
+Differential pair with current-mirror load
+VCC vcc 0 12
+VEE vee 0 -12
+VINP inp 0 SINE(0 5m 1k)
+VINN inn 0 0
+Q1 c1 inp tail 2N3904
+Q2 out inn tail 2N3904
+Q3 c1 c1 vcc 2N3906
+Q4 out c1 vcc 2N3906
+IEE tail vee 1m
+RL out 0 100k
+.model 2N3904 NPN(IS=1E-14 VAF=100 BF=300)
+.model 2N3906 PNP(IS=1E-14 VAF=100 BF=200)
+.tran 0 3m
+.end

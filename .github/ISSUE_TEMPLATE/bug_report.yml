@@ -1,0 +1,49 @@
+name: Bug report
+description: Something does not work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you paste anything: remove API keys, and do not attach vendor model files or PDK content you are not allowed to share.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `aispice --version`, or the version in the desktop app's settings.
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: face
+    attributes:
+      label: Where
+      options:
+        - Desktop app
+        - CLI
+        - MCP server
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you asked or ran, what you expected, and what happened instead. Attach the `.asc` if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `aispice doctor`
+      description: It lists simulators, LTspice and which providers have a key. It never prints key values.
+      render: text

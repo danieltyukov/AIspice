@@ -1,0 +1,15 @@
+Common-emitter amplifier
+VCC vcc 0 12
+VIN in 0 SINE(0 10m 1k) AC 1
+C1 in b 10u
+R1 vcc b 47k
+R2 b 0 10k
+Q1 c b e 2N3904
+RC vcc c 4.7k
+RE e 0 1k
+CE e 0 100u
+C2 c out 10u
+RL out 0 10k
+.model 2N3904 NPN(IS=6.734f BF=416.4 VAF=74.03 CJC=3.638p CJE=4.493p TF=301.2p RB=10)
+.tran 0 5m 0 1u
+.end

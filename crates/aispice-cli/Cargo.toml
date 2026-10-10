@@ -1,0 +1,36 @@
+[package]
+name = "aispice"
+description = "AI agent for SPICE circuit design: edit, simulate, measure and size circuits from the command line or any MCP client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["spice", "ltspice", "ngspice", "mcp", "eda"]
+categories = ["command-line-utilities", "science"]
+
+[[bin]]
+name = "aispice"
+path = "src/main.rs"
+
+[dependencies]
+aispice-agent = { version = "0.2.0", path = "../aispice-agent" }
+aispice-core.workspace = true
+aispice-tools.workspace = true
+anyhow.workspace = true
+async-trait = "0.1"
+clap.workspace = true
+rmcp = { version = "3.5.1", features = ["server", "transport-io"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

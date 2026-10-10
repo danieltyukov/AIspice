@@ -1,0 +1,29 @@
+id = "pass_regulator"
+title = "Zener-referenced series pass regulator"
+category = "power"
+description = "Linear regulator from discrete parts: a zener sets a reference at the base of an NPN emitter follower, and the transistor passes the load current. The output sits one Vbe below the zener voltage, and the input ripple is attenuated by the zener's dynamic resistance against Rb. V1 is an unregulated 12 V supply with 2 Vpp of 100 Hz ripple driving a 100 ohm (50 mA) load. There is no current limit; the transistor dissipates (Vin - Vout) times the load current. The zener (DZ5V6) and the transistor (QPASS, 2N2222 class) use generic models written in the schematic."
+analysis = ".tran 0 50m 0 10u"
+specs = """
+vout = avg(V(out), 10m, 50m) = 4.9 +- 0.25
+ripple = pp(V(out), 10m, 50m) <= 60m
+"""
+
+[[parameters]]
+part = "D1"
+controls = "Output voltage, through the zener model's breakdown voltage Bv"
+equation = "Vout = Vz - Vbe, Vbe about 0.65 to 0.75 V"
+
+[[parameters]]
+part = "Rb"
+controls = "Zener and base current, and so the ripple rejection and the minimum input voltage"
+equation = "Rb = (Vin_min - Vz) / (Iz_min + Iload_max / beta); ripple out is about ripple in times rz / (Rb + rz)"
+
+[[parameters]]
+part = "Q1"
+controls = "Load current capability and dissipation; beta sets the base current Rb must supply"
+equation = "P = (Vin - Vout) Iload; Ib = Iload / beta"
+
+[[parameters]]
+part = "RL"
+controls = "Load current"
+equation = "Iload = Vout / RL"

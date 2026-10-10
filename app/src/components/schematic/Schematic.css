@@ -1,0 +1,438 @@
+.schematic {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.sch-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+  background-image: radial-gradient(circle, var(--border) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.sch-pane[data-panning] {
+  cursor: grabbing;
+}
+
+.sch-pane:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+.sch-host,
+.sch-host > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/*
+ * The drawing. The SVG carries classes (sch-wire or wire, sch-symbol or
+ * symbol, and so on) and no styles of its own: the sanitiser removes <style>
+ * and style attributes, so every colour comes from tokens here.
+ */
+
+.sch-host .sch-wire,
+.sch-host .wire {
+  fill: none;
+  stroke: var(--sch-wire);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sch-host .sch-junction,
+.sch-host .junction {
+  fill: var(--sch-junction);
+}
+
+.sch-host .sch-symbol,
+.sch-host .symbol {
+  fill: none;
+  stroke: var(--sch-symbol);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke var(--dur-quick) var(--ease);
+}
+
+.sch-host .sch-symbol.sch-fill {
+  fill: var(--sch-symbol);
+}
+
+.sch-host text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  stroke: none;
+}
+
+.sch-host text.symbol,
+.sch-host text.sch-symbol {
+  fill: var(--sch-symbol);
+}
+
+.sch-host [data-inst] {
+  cursor: pointer;
+}
+
+.sch-host [data-inst]:hover .symbol,
+.sch-host [data-inst][data-selected] .symbol {
+  stroke: var(--accent);
+}
+
+.sch-host [data-hl='added'] .symbol {
+  stroke: var(--sch-hl-added);
+}
+
+.sch-host [data-hl='changed'] .symbol {
+  stroke: var(--sch-hl-changed);
+}
+
+.sch-host .sch-name {
+  fill: var(--sch-symbol);
+  font-weight: 600;
+}
+
+.sch-host .sch-value {
+  fill: var(--sch-label);
+}
+
+.sch-host .sch-label,
+.sch-host .label {
+  fill: var(--sch-label);
+  font-weight: 600;
+}
+
+.sch-host .sch-directive,
+.sch-host .directive {
+  fill: var(--sch-directive);
+}
+
+.sch-host .sch-comment,
+.sch-host .comment {
+  fill: var(--sch-comment);
+  font-family: var(--font-sans);
+  font-style: italic;
+}
+
+.sch-host .sch-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+.sch-host .sch-part {
+  cursor: pointer;
+}
+
+.sch-host .sch-part:hover .sch-symbol,
+.sch-host .sch-part[data-selected] .sch-symbol {
+  stroke: var(--accent);
+}
+
+.sch-host .sch-part:hover .sch-symbol.sch-fill,
+.sch-host .sch-part[data-selected] .sch-symbol.sch-fill {
+  fill: var(--accent);
+}
+
+.sch-host .sch-part[data-selected] .sch-hit {
+  fill: var(--accent-tint);
+  opacity: 0.7;
+}
+
+/* Parts the last edit added or changed: tinted strokes and a marching outline. */
+
+.sch-host [data-hl='added'] .sch-symbol {
+  stroke: var(--sch-hl-added);
+}
+
+.sch-host [data-hl='changed'] .sch-symbol {
+  stroke: var(--sch-hl-changed);
+}
+
+.sch-host [data-hl='added'] .sch-symbol.sch-fill {
+  fill: var(--sch-hl-added);
+}
+
+.sch-host [data-hl='changed'] .sch-symbol.sch-fill {
+  fill: var(--sch-hl-changed);
+}
+
+.sch-host .sch-hl-box {
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  animation: hl-march 1.4s linear infinite;
+  pointer-events: none;
+}
+
+.sch-host .sch-hl-box[data-kind='added'] {
+  stroke: var(--sch-hl-added);
+  fill: color-mix(in srgb, var(--sch-hl-added) 9%, transparent);
+}
+
+.sch-host .sch-hl-box[data-kind='changed'] {
+  stroke: var(--sch-hl-changed);
+  fill: color-mix(in srgb, var(--sch-hl-changed) 9%, transparent);
+}
+
+@keyframes hl-march {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sch-host .sch-hl-box {
+    animation: none;
+  }
+}
+
+/* Floating controls ---------------------------------------------------- */
+
+.sch-tools {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  cursor: default;
+}
+
+.sch-tools .button {
+  min-width: 28px;
+  font-size: var(--fs-small);
+}
+
+.sch-zoom {
+  min-width: 46px;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  text-align: center;
+}
+
+.sch-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  font-size: var(--fs-mini);
+  cursor: default;
+}
+
+.sch-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.sch-legend-item::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border: 1.5px dashed currentColor;
+  border-radius: 3px;
+}
+
+.sch-legend-item[data-kind='added']::before {
+  color: var(--sch-hl-added);
+}
+
+.sch-legend-item[data-kind='changed']::before {
+  color: var(--sch-hl-changed);
+}
+
+/* Part popover ---------------------------------------------------------- */
+
+.part-popover {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  cursor: default;
+  user-select: text;
+  animation: pop-in var(--dur-quick) var(--ease);
+}
+
+.part-popover:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pop-name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.pop-close {
+  margin-inline-start: auto;
+  min-height: 24px;
+  padding-inline: 6px;
+}
+
+.pop-desc {
+  margin-top: -4px;
+  font-size: var(--fs-mini);
+  color: var(--muted);
+}
+
+.pop-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  margin: 0;
+  font-size: var(--fs-small);
+}
+
+.pop-pair {
+  display: contents;
+}
+
+.pop-grid dt {
+  color: var(--muted);
+  font-size: var(--fs-mini);
+}
+
+.pop-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pop-pins {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-mini);
+}
+
+.pop-pins th {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: start;
+}
+
+.pop-pins td {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pop-pins tr:last-child td {
+  border-bottom: 0;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Findings strip -------------------------------------------------------- */
+
+.findings {
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.findings-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 12px 3px;
+  background: var(--bg);
+}
+
+.findings-count {
+  font-size: var(--fs-mini);
+  color: var(--faint);
+}
+
+.findings-list {
+  padding: 0 4px 6px;
+}
+
+.finding {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: var(--r-control);
+  font-size: var(--fs-small);
+  text-align: start;
+}
+
+button.finding:hover {
+  background: var(--hover);
+}
+
+.finding-sev {
+  flex: 0 0 auto;
+  min-width: 54px;
+  font-size: var(--fs-mini);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.finding-sev[data-severity='error'] {
+  color: var(--danger);
+}
+
+.finding-sev[data-severity='info'] {
+  color: var(--info);
+}
+
+.finding-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.finding-rule {
+  flex: 0 0 auto;
+  font-size: var(--fs-micro);
+  color: var(--faint);
+}

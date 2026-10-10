@@ -1,0 +1,13 @@
+Emitter follower
+VCC vcc 0 9
+VIN in 0 SINE(0 1 1k)
+C1 in b 10u
+R1 vcc b 100k
+R2 b 0 100k
+Q1 vcc b e 2N2222
+RE e 0 1k
+C2 e out 10u
+RL out 0 1k
+.model 2N2222 NPN(IS=1E-14 VAF=100 BF=200)
+.tran 0 3m
+.end

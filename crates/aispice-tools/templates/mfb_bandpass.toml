@@ -1,0 +1,37 @@
+id = "mfb_bandpass"
+title = "Multiple-feedback band-pass, 2nd order"
+category = "filters"
+description = "Inverting second-order band-pass on one op-amp (Deliyannis-Friend). Centre 1 kHz, Q = 5, gain -2 at the centre. Good up to Q of about 10 to 20; the op-amp needs open-loop gain well above 2 Q^2 at f0. Choose C first, then R3 for Q, R1 for the gain and R2 for the centre frequency."
+analysis = ".ac dec 100 10 100k"
+specs = """
+peak = peak_gain(V(out)/V(in)) in 5..7
+center = gain_db_at(V(out)/V(in), 1k) >= 5
+bw = bandwidth_3db(V(out)/V(in), peak) in 160..250
+reject_lo = gain_db_at(V(out)/V(in), 100) <= -15
+reject_hi = gain_db_at(V(out)/V(in), 10k) <= -15
+"""
+
+[[parameters]]
+part = "R3"
+controls = "Q and bandwidth (the feedback resistor from the output to the inverting input)"
+equation = "Q = pi f0 R3 C; bandwidth = f0 / Q = 1 / (pi R3 C)"
+
+[[parameters]]
+part = "R1"
+controls = "Gain at the centre frequency (the input resistor)"
+equation = "A0 = -R3 / (2 R1)"
+
+[[parameters]]
+part = "R2"
+controls = "Centre frequency, without changing Q or gain (the resistor from the middle node to ground)"
+equation = "f0 = 1 / (2 pi C) sqrt((R1 + R2) / (R1 R2 R3)); for a design, R2 = R3 / (4 Q^2 - 2 |A0|)"
+
+[[parameters]]
+part = "C1"
+controls = "Scales every frequency; keep C1 = C2"
+equation = "f0 is proportional to 1 / C"
+
+[[parameters]]
+part = "C2"
+controls = "Scales every frequency; keep C2 = C1"
+equation = "f0 is proportional to 1 / C"

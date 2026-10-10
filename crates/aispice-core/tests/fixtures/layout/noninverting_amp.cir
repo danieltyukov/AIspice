@@ -1,0 +1,16 @@
+Non-inverting amplifier, gain 11, with supply pins
+VCC vcc 0 15
+VEE vee 0 -15
+VIN in 0 SINE(0 100m 1k)
+R1 inv 0 1k
+R2 inv out 10k
+XU1 in inv vcc vee out op5
+RL out 0 10k
+.subckt op5 inp inn vp vn out
+G1 0 n1 inp inn 1m
+R1 n1 0 100Meg
+C1 n1 0 1.59n
+E1 out 0 n1 0 1
+.ends op5
+.tran 0 3m
+.end

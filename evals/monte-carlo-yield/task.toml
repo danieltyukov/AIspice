@@ -1,0 +1,17 @@
+id = "monte-carlo-yield"
+title = "Run a Monte Carlo analysis and report the yield"
+difficulty = "medium"
+prompt = """
+Run a Monte Carlo analysis on filter.asc with 5% resistors and 10% capacitors (uniform), 200 runs and seed 1, judged against the -3 dB corner staying between 1.45 kHz and 1.75 kHz. Tell me the yield. Do not change the circuit.
+"""
+circuit = "filter.asc"
+analysis = ".ac dec 50 10 1Meg"
+specs = """
+fc = bandwidth_3db(V(out)) in 1.55k..1.65k
+"""
+max_steps = 8
+constraints = [
+  { kind = "tool_called", name = "monte_carlo" },
+  { kind = "answer_reports", tool = "monte_carlo", pointer = "/yield_pct", tol = 0.5 },
+  { kind = "files_unchanged" },
+]

@@ -1,0 +1,40 @@
+id = "ce_amplifier"
+title = "Common-emitter BJT amplifier with emitter degeneration"
+category = "amplifiers"
+description = "Single-transistor voltage amplifier on a 12 V supply. The base divider and the unbypassed emitter resistor fix the operating point independently of the transistor's beta, and the gain is set by the resistor ratio (Rc || RL)/Re rather than by the transistor. Cin and Cout block DC. The input is a 20 mVpp, 1 kHz sine, so the output swing is the gain times 20 mV. Q1 uses QSIG, a generic 2N3904-class model written in the schematic."
+analysis = ".tran 0 5m 0 1u"
+specs = """
+vc = avg(V(col), 1m, 5m) in 4.5..7
+vout_pp = pp(V(out), 1m, 5m) in 52m..74m
+thd = thd(V(out), 1k) <= 1
+"""
+
+[[parameters]]
+part = "Re"
+controls = "Gain and the collector current (the degeneration resistor); more Re means lower, more stable gain"
+equation = "Av = -(Rc || RL) / (Re + re), re = 26 mV / Ic; Ic = (Vb - 0.65 V) / Re"
+
+[[parameters]]
+part = "Rc"
+controls = "Gain and the collector bias voltage"
+equation = "Av = -(Rc || RL) / (Re + re); V(col) = Vcc - Ic Rc, best near the middle of the swing"
+
+[[parameters]]
+part = "R1"
+controls = "Base bias, with R2 (the upper divider resistor)"
+equation = "Vb = Vcc R2 / (R1 + R2); keep the divider current at least 10 times the base current"
+
+[[parameters]]
+part = "R2"
+controls = "Base bias and part of the input impedance"
+equation = "Vb = Vcc R2 / (R1 + R2); Zin = R1 || R2 || (beta + 1)(Re + re)"
+
+[[parameters]]
+part = "Cin"
+controls = "Low-frequency corner at the input"
+equation = "f_low = 1 / (2 pi Zin Cin)"
+
+[[parameters]]
+part = "Cout"
+controls = "Low-frequency corner at the output"
+equation = "f_low = 1 / (2 pi (Rc + RL) Cout)"

@@ -1,0 +1,20 @@
+[
+  {"tools": [{"name": "create_schematic", "input": {"circuit": "inv.asc", "edits": [
+    {"op": "add_component", "symbol": "voltage", "name": "V1", "value": "SINE(0 100m 1k)", "attrs": {"Value2": "AC 1"}},
+    {"op": "add_component", "symbol": "OpAmps/opamp", "name": "U1", "near": "V1"},
+    {"op": "add_component", "symbol": "res", "name": "Rin", "value": "10k", "orient": "R90", "near": "U1"},
+    {"op": "add_component", "symbol": "res", "name": "Rf", "value": "100k", "orient": "R90", "near": "U1"},
+    {"op": "connect_to_net", "pin": "V1.+", "net": "in"},
+    {"op": "connect_to_net", "pin": "V1.-", "net": "0"},
+    {"op": "connect_to_net", "pin": "Rin.A", "net": "in"},
+    {"op": "connect_to_net", "pin": "Rin.B", "net": "sum"},
+    {"op": "connect_to_net", "pin": "U1.invin", "net": "sum"},
+    {"op": "connect_to_net", "pin": "Rf.A", "net": "sum"},
+    {"op": "connect_to_net", "pin": "Rf.B", "net": "out"},
+    {"op": "connect_to_net", "pin": "U1.out", "net": "out"},
+    {"op": "connect_to_net", "pin": "U1.noninvin", "net": "0"},
+    {"op": "add_directive", "text": ".ac dec 20 10 1Meg"}
+  ]}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "inv.asc", "specs": "gain = gain_db_at(V(out)/V(in), 1k) = 20 +- 0.2\ninverting = value_at(re(V(out)/V(in)), 1k) <= -9\nzin = value_at(V(in)/I(V1), 1k) in 9.5k..10.5k"}}]},
+  {"answer": "inv.asc: Rin = 10 kOhm from in to the inverting input, Rf = 100 kOhm from there to out, non-inverting input grounded. The gain is -Rf/Rin = -10 (20 dB) and the input impedance is Rin = 10 kOhm, both confirmed by the AC simulation."}
+]

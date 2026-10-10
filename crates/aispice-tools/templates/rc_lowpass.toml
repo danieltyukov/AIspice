@@ -1,0 +1,20 @@
+id = "rc_lowpass"
+title = "RC low-pass filter"
+category = "filters"
+description = "First-order passive low-pass: R1 in series, C1 to ground. Flat below the corner, falling 20 dB per decade above it. The output has an impedance of about R1, so it must drive a load much larger than R1."
+analysis = ".ac dec 50 10 1Meg"
+specs = """
+f3db = bandwidth_3db(V(out)/V(in)) in 1.45k..1.75k
+pass = gain_db_at(V(out)/V(in), 10) >= -0.1
+stop = gain_db_at(V(out)/V(in), 100k) <= -30
+"""
+
+[[parameters]]
+part = "R1"
+controls = "Corner frequency (with C1) and the output impedance"
+equation = "fc = 1 / (2 pi R1 C1)"
+
+[[parameters]]
+part = "C1"
+controls = "Corner frequency (with R1)"
+equation = "fc = 1 / (2 pi R1 C1)"

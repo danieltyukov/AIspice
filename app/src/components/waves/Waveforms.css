@@ -1,0 +1,287 @@
+.waves {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  container-type: inline-size;
+  background: var(--surface);
+}
+
+.wave-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wave-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-mini);
+  color: var(--muted);
+}
+
+.wave-meta {
+  margin-inline-start: auto;
+  font-size: var(--fs-mini);
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.wave-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--fs-mini);
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    color var(--dur-quick) var(--ease),
+    background-color var(--dur-quick) var(--ease);
+}
+
+.signal:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.signal[aria-pressed='true'] {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.signal-swatch {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--faint);
+  border-radius: 50%;
+}
+
+.wave-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 264px;
+}
+
+/* A narrow pane stacks the readout under the plots. Flex rather than grid, so
+   the readout's max-height resolves against the whole body. */
+@container (max-width: 640px) {
+  .wave-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .wave-plots {
+    flex: 1 1 auto;
+    min-height: 150px;
+  }
+
+  .wave-side {
+    flex: 0 1 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    max-height: 42%;
+    border-inline-start: 0 !important;
+    border-top: 1px solid var(--border);
+  }
+
+  .wave-card {
+    border-bottom: 0;
+  }
+
+  .wave-card + .wave-card {
+    border-inline-start: 1px solid var(--border);
+    min-height: 100%;
+  }
+}
+
+.wave-plots {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 4px 4px 0;
+}
+
+.wave-plots:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+.plot-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+}
+
+.plot {
+  position: absolute;
+  inset: 0;
+}
+
+/* uPlot's own chrome, quietened and themed. */
+.plot .uplot {
+  font-family: var(--font-mono);
+}
+
+.plot .u-select {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.plot .u-cursor-x {
+  border-right: 1px dashed var(--faint);
+}
+
+.plot .u-cursor-pt {
+  border-radius: 50%;
+}
+
+.plot .u-over {
+  cursor: crosshair;
+}
+
+.wave-side {
+  min-height: 0;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.wave-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wave-card:last-child {
+  border-bottom: 0;
+}
+
+.wave-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wave-card-head .section-title {
+  margin-inline-end: auto;
+}
+
+.wave-card-head .segment {
+  min-height: 22px;
+  padding-inline: 8px;
+}
+
+.wave-card-head .button {
+  min-height: 22px;
+  padding-inline: 6px;
+}
+
+.readout {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.readout {
+  table-layout: fixed;
+}
+
+.readout th,
+.readout td {
+  padding: 1px 0 3px 4px;
+  text-align: end;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+
+.readout thead th {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.readout tbody tr:not(.readout-name) td {
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.readout-name th {
+  padding: 5px 0 0;
+  text-align: start;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+
+.readout-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-inline-end: 5px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.meas-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+}
+
+.meas-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--fs-mini);
+}
+
+.meas-row dt {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meas-row dd {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.meas-sub {
+  margin-top: 6px;
+}
+
+.wave-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-mini);
+  color: var(--muted);
+}

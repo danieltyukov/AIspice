@@ -1,0 +1,24 @@
+id = "sallen-key"
+title = "Size a Sallen-Key low-pass for cutoff and Q"
+difficulty = "hard"
+prompt = """
+sk.asc is a unity-gain Sallen-Key low-pass filter. Resize its resistors and capacitors for a Butterworth response (Q = 0.707) with the -3 dB cutoff at 1 kHz within 5%. Keep the topology and use E24 values.
+"""
+circuit = "sk.asc"
+analysis = ".ac dec 50 10 100k"
+# A Butterworth response has no peaking and falls 40 dB per decade, so the
+# gain at 10 kHz pins Q from below and the peak gain pins it from above.
+specs = """
+fc = bandwidth_3db(V(out)) in 950..1050
+flat = peak_gain(V(out)) <= 0.2
+stop = gain_db_at(V(out), 10k) <= -37
+dc = gain_db_at(V(out), 10) in -0.1..0.1
+"""
+max_steps = 14
+constraints = [
+  { kind = "part_count", symbol = "OpAmps/opamp", min = 1, max = 1 },
+  { kind = "part_count", prefix = "R", min = 2, max = 2 },
+  { kind = "part_count", prefix = "C", min = 2, max = 2 },
+  { kind = "e_series", prefix = "R", series = "E24" },
+  { kind = "e_series", prefix = "C", series = "E24" },
+]

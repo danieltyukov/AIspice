@@ -1,0 +1,19 @@
+id = "inverting-amp"
+title = "Design an inverting amplifier for gain and input impedance"
+difficulty = "medium"
+prompt = """
+Design an inverting amplifier in a new file inv.asc using the ideal op-amp symbol OpAmps/opamp. Drive it from a voltage source named V1 with an AC amplitude of 1 V on net in, and put the output on net out. It needs a gain of -10 (20 dB, inverting) at 1 kHz within 0.2 dB and an input impedance of 10 kΩ within 5%.
+"""
+circuit = "inv.asc"
+analysis = ".ac dec 20 10 1Meg"
+specs = """
+gain = gain_db_at(V(out)/V(in), 1k) = 20 +- 0.2
+inverting = value_at(re(V(out)/V(in)), 1k) <= -9
+zin = value_at(V(in)/I(V1), 1k) in 9.5k..10.5k
+"""
+max_steps = 12
+constraints = [
+  { kind = "part_exists", name = "V1" },
+  { kind = "part_count", symbol = "OpAmps/opamp", min = 1 },
+  { kind = "max_parts", count = 5 },
+]

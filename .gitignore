@@ -1,6 +1,28 @@
+# Build output
+target/
 node_modules/
 dist/
-target/
+*.tsbuildinfo
+
+# Local state
 .env
-*.swp
+.env.*
+!.env.example
+.aispice/
+.playwright-mcp/
 .DS_Store
+*.swp
+
+# Simulator output next to example circuits
+examples/**/*.raw
+examples/**/*.log
+examples/**/*.op.raw
+examples/**/*.net
+!examples/**/golden/*.net
+
+# Agent worktrees and local assistant state
+.claude/
+
+# Desktop app: generated capability schemas and end-to-end screenshots
+app/src-tauri/gen/
+app/e2e-desktop/output/
