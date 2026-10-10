@@ -219,14 +219,14 @@ fn spec(argv: &[OsString], cwd: &Path) -> ProcessSpec {
 /// two fresh ones gives 128 bits nobody on the remote host can guess.
 fn nonce() -> String {
     use std::hash::{BuildHasher, Hasher};
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
     let mut parts = [0u64; 2];
     for part in parts.iter_mut() {
         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(t);
+        // The clock and the process id only make runs distinct; the
+        // unpredictability comes from the hasher's random keys.
+        if let Ok(d) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            h.write_u128(d.as_nanos());
+        }
         h.write_u32(std::process::id());
         *part = h.finish();
     }
