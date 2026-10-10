@@ -686,8 +686,15 @@ impl<'a> Placer<'a> {
             let both_signal = kinds.0 == NetKind::Signal && kinds.1 == NetKind::Signal;
             if both_signal && !horizontal && !self.c.feedback[d] && dev.kind != Kind::Source {
                 // Diodes stand upright in bridges and clamps, current flowing
-                // up toward the higher node; a light preference only.
-                total += if dev.kind == Kind::Diode {
+                // up toward the higher node; a light preference only. A
+                // diode fed straight from the input source is in the signal
+                // path, and lies along it like any series part.
+                let from_input = self.c.input.is_some_and(|i| {
+                    self.c.devices[i]
+                        .nets()
+                        .any(|n| self.c.is_signal(n) && dev.nets().any(|m| m == n))
+                });
+                total += if dev.kind == Kind::Diode && !from_input {
                     W_UPRIGHT_SERIES * 0.3
                 } else {
                     W_UPRIGHT_SERIES
