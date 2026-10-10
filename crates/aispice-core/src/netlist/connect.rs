@@ -3,14 +3,20 @@
 //! The rules follow LTspice: a wire joins its two ends; a wire end, pin or
 //! flag that lands anywhere on another wire joins that wire (so a T-junction
 //! needs no extra segment); pins and flags on the same point join; two wires
-//! that merely cross do not. Flags with the same label join wherever they are,
-//! and the label `0` is ground.
+//! that merely cross do not. Flags with the same label join wherever they are.
+//! The labels `0` and `GND` are ground. Every rule here was checked against
+//! LTspice's own netlister.
 
-use crate::geometry::{Point, on_segment};
+use crate::geometry::{Point, SegmentIndex};
 use crate::schematic::{Schematic, Wire};
 use crate::symbol::{SymbolDef, SymbolLibrary};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+
+/// Labels LTspice netlists as ground.
+pub fn is_ground_label(label: &str) -> bool {
+    label == "0" || label.eq_ignore_ascii_case("gnd")
+}
 use std::sync::Arc;
 
 /// One pin of one placed component.
@@ -178,32 +184,23 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
     }
 
     // Anything that lands on a wire joins it: T-junctions, pins on wires,
-    // flags on wires. Wires are bucketed by axis so this stays near linear.
-    let points: Vec<(Point, usize)> = ids.iter().map(|(p, id)| (*p, *id)).collect();
-    let mut horizontal: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
-    let mut vertical: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
-    let mut diagonal = Vec::new();
-    for (i, w) in wires.iter().enumerate() {
-        if w.a.y == w.b.y {
-            horizontal.entry(w.a.y).or_default().push(i);
-        } else if w.a.x == w.b.x {
-            vertical.entry(w.a.x).or_default().push(i);
-        } else {
-            diagonal.push(i);
-        }
+    // flags on wires. Overlapping collinear wires are one conductor.
+    let segs: Vec<(Point, Point)> = wires.iter().map(|w| (w.a, w.b)).collect();
+    let (index, merged) = SegmentIndex::new(&segs);
+    for (a, b) in merged {
+        dsu.union(wire_ids[a], wire_ids[b]);
     }
+    let points: Vec<(Point, usize)> = ids.iter().map(|(p, id)| (*p, *id)).collect();
     for (p, id) in points {
-        let candidates = horizontal
-            .get(&p.y)
+        let cover = index.cover(p);
+        for wi in cover
+            .horizontal
+            .map(|s| s.wire)
             .into_iter()
-            .flatten()
-            .chain(vertical.get(&p.x).into_iter().flatten())
-            .chain(diagonal.iter());
-        for &wi in candidates {
-            let w = &wires[wi];
-            if on_segment(p, w.a, w.b) {
-                dsu.union(id, wire_ids[wi]);
-            }
+            .chain(cover.vertical.map(|s| s.wire))
+            .chain(cover.diagonal)
+        {
+            dsu.union(id, wire_ids[wi]);
         }
     }
 
@@ -254,21 +251,46 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
         nets[n].wire_count += 1;
     }
 
-    let mut numbered = 0;
+    // Names. Ground first, then flag labels; unlabelled nets are numbered the
+    // way LTspice does it: N001.. for nets with a wire, ordered top to bottom,
+    // P001.. for pins touching pins directly, NC_01.. for lone pins.
+    let mut top_left: HashMap<usize, Point> = HashMap::new();
+    for (i, net) in nets.iter().enumerate() {
+        if let Some(p) = net.pins.iter().map(|p| p.at).min_by_key(|p| (p.y, p.x)) {
+            top_left.insert(i, p);
+        }
+    }
+    for (w, id) in wires.iter().zip(&wire_ids) {
+        let n = root_to_net[&dsu.find(*id)];
+        let best = [w.a, w.b]
+            .into_iter()
+            .min_by_key(|p| (p.y, p.x))
+            .expect("two points");
+        top_left
+            .entry(n)
+            .and_modify(|p| {
+                if (best.y, best.x) < (p.y, p.x) {
+                    *p = best;
+                }
+            })
+            .or_insert(best);
+    }
     for net in nets.iter_mut() {
-        if net.labels.iter().any(|l| l == "0") {
+        let ground: Vec<&String> = net.labels.iter().filter(|l| is_ground_label(l)).collect();
+        if !ground.is_empty() {
             net.name = "0".into();
             net.labelled = true;
-            if net.labels.len() > 1 {
+            let others: Vec<String> = net
+                .labels
+                .iter()
+                .filter(|l| !is_ground_label(l))
+                .cloned()
+                .collect();
+            if !others.is_empty() {
                 warnings.push(ConnWarning {
                     message: format!(
                         "ground is also labelled {}; those labels are shorted to ground",
-                        net.labels
-                            .iter()
-                            .filter(|l| *l != "0")
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        others.join(", ")
                     ),
                     at: net.pins.first().map(|p| p.at),
                 });
@@ -285,20 +307,30 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
                     at: net.pins.first().map(|p| p.at),
                 });
             }
-        } else if net.pins.len() == 1 && net.wire_count == 0 {
-            // A pin touching nothing at all. LTspice names these NC_nn.
-            continue;
-        } else {
-            numbered += 1;
-            net.name = format!("N{numbered:03}");
         }
     }
-    let mut nc = 0;
-    for net in nets.iter_mut() {
-        if net.name.is_empty() {
-            nc += 1;
-            net.name = format!("NC_{nc:02}");
-        }
+    let mut order: Vec<usize> = (0..nets.len())
+        .filter(|&i| nets[i].name.is_empty())
+        .collect();
+    order.sort_by_key(|i| {
+        top_left
+            .get(i)
+            .map(|p| (p.y, p.x))
+            .unwrap_or((i32::MAX, i32::MAX))
+    });
+    let (mut n_count, mut p_count, mut nc_count) = (0, 0, 0);
+    for i in order {
+        let net = &mut nets[i];
+        net.name = if net.wire_count > 0 {
+            n_count += 1;
+            format!("N{n_count:03}")
+        } else if net.pins.len() > 1 {
+            p_count += 1;
+            format!("P{p_count:03}")
+        } else {
+            nc_count += 1;
+            format!("NC_{nc_count:02}")
+        };
     }
 
     let mut pin_nets: HashMap<String, Vec<(String, usize)>> = HashMap::new();
@@ -329,7 +361,7 @@ mod tests {
         connect(&sch, &SymbolLibrary::builtin_only())
     }
 
-    const RC: &str = "Version 4\nSHEET 1 880 680\nWIRE 96 96 32 96\nWIRE 240 96 176 96\nWIRE 240 128 240 96\nWIRE 32 176 32 112\nFLAG 32 176 0\nFLAG 240 192 0\nFLAG 240 96 out\nSYMBOL voltage 32 80 R0\nSYMATTR InstName V1\nSYMATTR Value SINE(0 1 1k)\nSYMBOL res 192 80 R90\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL cap 224 128 R0\nSYMATTR InstName C1\nSYMATTR Value 100n\n";
+    const RC: &str = "Version 4\nSHEET 1 880 680\nWIRE 96 96 32 96\nWIRE 240 96 176 96\nWIRE 240 128 240 96\nFLAG 32 176 0\nFLAG 240 192 0\nFLAG 240 96 out\nSYMBOL voltage 32 80 R0\nSYMATTR InstName V1\nSYMATTR Value SINE(0 1 1k)\nSYMBOL res 192 80 R90\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL cap 224 128 R0\nSYMATTR InstName C1\nSYMATTR Value 100n\n";
 
     #[test]
     fn rc_low_pass_nets() {
@@ -370,6 +402,40 @@ mod tests {
         let src = "Version 4\nSHEET 1 880 680\nWIRE -64 16 96 16\nFLAG -64 16 x\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\n";
         let c = conn(src);
         assert_eq!(c.net_of("R1", "A").unwrap().name, "x");
+    }
+
+    #[test]
+    fn many_collinear_wires_stay_fast() {
+        // 40k overlapping wires on one row plus 40k crossing stubs: quadratic
+        // matching would take minutes; the span index takes milliseconds.
+        let mut src = String::from("Version 4\nSHEET 1 880 680\n");
+        for i in 0..40_000 {
+            let x = i * 16;
+            src.push_str(&format!("WIRE {x} 0 {} 0\nWIRE {x} -16 {x} 16\n", x + 48));
+        }
+        src.push_str("FLAG 0 0 rail\n");
+        let started = std::time::Instant::now();
+        let c = conn(&src);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(c.net("rail").unwrap().wire_count, 80_000);
+    }
+
+    #[test]
+    fn gnd_label_is_ground() {
+        let src =
+            "Version 4\nSHEET 1 880 680\nFLAG 16 16 GND\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\n";
+        assert_eq!(conn(src).net_of("R1", "A").unwrap().name, "0");
+    }
+
+    #[test]
+    fn pin_to_pin_nets_are_p_numbered() {
+        // R1's pin B (16,96) touches R2's pin A (16,96) directly, no wire.
+        let src = "Version 4\nSHEET 1 880 680\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMBOL res 0 80 R0\nSYMATTR InstName R2\n";
+        assert_eq!(conn(src).net_of("R1", "B").unwrap().name, "P001");
     }
 
     #[test]

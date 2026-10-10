@@ -2,8 +2,9 @@
 //!
 //! LTspice draws with X to the right and Y down, on a 16-unit grid. A symbol
 //! placed with orientation `R90` is its `R0` drawing turned a quarter turn
-//! clockwise as seen on screen. `M` orientations mirror left to right first,
-//! then rotate.
+//! clockwise as seen on screen. `M` orientations rotate first and then mirror
+//! left to right; this order was verified against LTspice's own netlister for
+//! all eight orientations.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -119,16 +120,16 @@ impl Orient {
     /// Map a point given relative to a symbol's origin in its `R0` drawing to
     /// where it lands relative to the origin after this orientation.
     pub fn apply(self, p: Point) -> Point {
-        let (x, y) = if self.is_mirrored() {
-            (-p.x, p.y)
-        } else {
-            (p.x, p.y)
+        let r = match self.quarter_turns() {
+            0 => p,
+            1 => Point::new(-p.y, p.x),
+            2 => Point::new(-p.x, -p.y),
+            _ => Point::new(p.y, -p.x),
         };
-        match self.quarter_turns() {
-            0 => Point::new(x, y),
-            1 => Point::new(-y, x),
-            2 => Point::new(-x, -y),
-            _ => Point::new(y, -x),
+        if self.is_mirrored() {
+            Point::new(-r.x, r.y)
+        } else {
+            r
         }
     }
 
@@ -244,12 +245,13 @@ mod tests {
     }
 
     #[test]
-    fn mirror_then_rotate() {
+    fn rotate_then_mirror_matches_ltspice() {
+        // Verified with LTspice XVII's netlister using npn pins.
         let p = Point::new(16, 96);
         assert_eq!(Orient::M0.apply(p), Point::new(-16, 96));
-        assert_eq!(Orient::M90.apply(p), Point::new(-96, -16));
+        assert_eq!(Orient::M90.apply(p), Point::new(96, 16));
         assert_eq!(Orient::M180.apply(p), Point::new(16, -96));
-        assert_eq!(Orient::M270.apply(p), Point::new(96, 16));
+        assert_eq!(Orient::M270.apply(p), Point::new(-96, -16));
     }
 
     #[test]
@@ -268,6 +270,27 @@ mod tests {
     }
 
     #[test]
+    fn segment_index_merges_and_finds() {
+        let wires = [
+            (Point::new(0, 0), Point::new(64, 0)),
+            (Point::new(48, 0), Point::new(128, 0)),
+            (Point::new(200, 0), Point::new(256, 0)),
+            (Point::new(32, -32), Point::new(32, 32)),
+        ];
+        let (idx, merged) = SegmentIndex::new(&wires);
+        assert_eq!(merged, vec![(0, 1)]);
+        let c = idx.cover(Point::new(100, 0));
+        assert_eq!(c.horizontal.map(|s| (s.lo, s.hi)), Some((0, 128)));
+        assert!(idx.cover(Point::new(150, 0)).horizontal.is_none());
+        let c = idx.cover(Point::new(32, 0));
+        assert!(c.horizontal.is_some() && c.vertical.is_some());
+        assert_eq!(
+            idx.cover(Point::new(256, 0)).horizontal.map(|s| s.wire),
+            Some(2)
+        );
+    }
+
+    #[test]
     fn segment_membership() {
         let a = Point::new(0, 0);
         let b = Point::new(64, 0);
@@ -275,5 +298,104 @@ mod tests {
         assert!(on_segment(a, a, b));
         assert!(!on_segment(Point::new(80, 0), a, b));
         assert!(!on_segment(Point::new(32, 16), a, b));
+    }
+}
+
+/// Answers "which wires pass through this point" in logarithmic time.
+///
+/// Collinear horizontal (or vertical) wires that overlap or touch are merged
+/// into one span per line, because they are electrically one conductor.
+/// A query is a binary search on its row and its column. Diagonal wires, which
+/// LTspice allows but nobody draws, are checked one by one.
+#[derive(Debug, Clone, Default)]
+pub struct SegmentIndex {
+    rows: std::collections::HashMap<i32, Vec<Span>>,
+    cols: std::collections::HashMap<i32, Vec<Span>>,
+    diagonal: Vec<(Point, Point, usize)>,
+}
+
+/// A merged run of collinear wires. `wire` is one of them, as a representative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub lo: i32,
+    pub hi: i32,
+    pub wire: usize,
+}
+
+/// Which wires cover a point, by orientation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Cover {
+    pub horizontal: Option<Span>,
+    pub vertical: Option<Span>,
+    pub diagonal: Vec<usize>,
+}
+
+impl SegmentIndex {
+    /// Build the index. Also returns pairs of wire indices that were merged
+    /// because they overlap on the same line.
+    pub fn new(wires: &[(Point, Point)]) -> (Self, Vec<(usize, usize)>) {
+        let mut rows: std::collections::HashMap<i32, Vec<Span>> = Default::default();
+        let mut cols: std::collections::HashMap<i32, Vec<Span>> = Default::default();
+        let mut diagonal = Vec::new();
+        for (i, &(a, b)) in wires.iter().enumerate() {
+            if a.y == b.y {
+                rows.entry(a.y).or_default().push(Span {
+                    lo: a.x.min(b.x),
+                    hi: a.x.max(b.x),
+                    wire: i,
+                });
+            } else if a.x == b.x {
+                cols.entry(a.x).or_default().push(Span {
+                    lo: a.y.min(b.y),
+                    hi: a.y.max(b.y),
+                    wire: i,
+                });
+            } else {
+                diagonal.push((a, b, i));
+            }
+        }
+        let mut merged_pairs = Vec::new();
+        for spans in rows.values_mut().chain(cols.values_mut()) {
+            spans.sort_by_key(|s| (s.lo, s.hi));
+            let mut out: Vec<Span> = Vec::with_capacity(spans.len());
+            for s in spans.drain(..) {
+                match out.last_mut() {
+                    Some(cur) if s.lo <= cur.hi => {
+                        merged_pairs.push((cur.wire, s.wire));
+                        cur.hi = cur.hi.max(s.hi);
+                    }
+                    _ => out.push(s),
+                }
+            }
+            *spans = out;
+        }
+        (
+            Self {
+                rows,
+                cols,
+                diagonal,
+            },
+            merged_pairs,
+        )
+    }
+
+    /// The wires covering `p`, endpoints included.
+    pub fn cover(&self, p: Point) -> Cover {
+        let find = |spans: Option<&Vec<Span>>, v: i32| -> Option<Span> {
+            let spans = spans?;
+            let idx = spans.partition_point(|s| s.lo <= v);
+            let s = *spans.get(idx.checked_sub(1)?)?;
+            (s.hi >= v).then_some(s)
+        };
+        Cover {
+            horizontal: find(self.rows.get(&p.y), p.x),
+            vertical: find(self.cols.get(&p.x), p.y),
+            diagonal: self
+                .diagonal
+                .iter()
+                .filter(|(a, b, _)| on_segment(p, *a, *b))
+                .map(|(_, _, i)| *i)
+                .collect(),
+        }
     }
 }

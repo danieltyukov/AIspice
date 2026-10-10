@@ -169,14 +169,19 @@ pub fn parse(text: &str) -> Netlist {
         }
     }
     let mut iter = logical.into_iter().peekable();
-    let items = parse_block(&mut iter, false);
+    let items = parse_block(&mut iter, 0);
     Netlist { title, items }
 }
 
+/// Subcircuit definitions nest at most this deep. Real decks nest one or two
+/// levels; the cap keeps a hostile file from exhausting the stack.
+const MAX_SUBCKT_DEPTH: usize = 32;
+
 fn parse_block(
     iter: &mut std::iter::Peekable<std::vec::IntoIter<String>>,
-    in_subckt: bool,
+    depth: usize,
 ) -> Vec<Line> {
+    let in_subckt = depth > 0;
     let mut items = Vec::new();
     while let Some(line) = iter.next() {
         if let Some(c) = line.strip_prefix('*') {
@@ -195,6 +200,12 @@ fn parse_block(
         if lower == ".end" {
             break;
         }
+        if lower.starts_with(".subckt") && depth >= MAX_SUBCKT_DEPTH {
+            items.push(Line::Comment {
+                text: format!("ignored: subcircuit nesting deeper than {MAX_SUBCKT_DEPTH}: {line}"),
+            });
+            continue;
+        }
         if lower.starts_with(".subckt") {
             let mut words = line.split_whitespace().skip(1);
             let name = words.next().unwrap_or("").to_string();
@@ -209,7 +220,7 @@ fn parse_block(
                     ports.push(w.to_string());
                 }
             }
-            let body = parse_block(iter, true);
+            let body = parse_block(iter, depth + 1);
             items.push(Line::Subckt(Subckt {
                 name,
                 ports,
@@ -447,6 +458,16 @@ mod tests {
         assert_eq!(e.nodes, vec!["out", "0"]);
         let e = parse_element("E2 out 0 inp inn 1e5").unwrap();
         assert_eq!(e.nodes.len(), 4);
+    }
+
+    #[test]
+    fn deeply_nested_subckts_do_not_overflow() {
+        let mut text = String::from("deck\n");
+        for i in 0..100_000 {
+            text.push_str(&format!(".subckt s{i} a b\n"));
+        }
+        let n = parse(&text);
+        assert_eq!(n.subckts().count(), 1);
     }
 
     #[test]
