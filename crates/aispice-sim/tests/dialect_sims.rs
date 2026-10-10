@@ -22,6 +22,9 @@ async fn run_everywhere(deck_name: &str) -> Vec<(SimId, SimOutput)> {
     if let Some(lt) = ltspice().await {
         sims.push((SimId::Ltspice, Box::new(lt)));
     }
+    if let Some(sp) = spectre().await {
+        sims.push((SimId::Spectre, Box::new(sp)));
+    }
     let runs = sims.iter().map(|(id, sim)| {
         let tr = translate(&netlist, id.target());
         async move {
@@ -53,6 +56,9 @@ fn meas(id: SimId, out: &SimOutput, name: &str) -> f64 {
 fn check(name: &str, runs: &[(SimId, SimOutput)], tol: f64) -> Vec<f64> {
     let values: Vec<(SimId, f64)> = runs
         .iter()
+        // Spectre 19 has no `.meas` in SPICE mode; its results are compared
+        // through aispice's own measurements in `spectre_matches_ngspice`.
+        .filter(|(id, o)| *id != SimId::Spectre || !o.measurements.is_empty())
         .map(|(id, o)| (*id, meas(*id, o, name)))
         .collect();
     for (id, v) in &values {
@@ -97,5 +103,60 @@ async fn ltspice_flavoured_ac_runs_everywhere() {
     // At 10 kHz the capacitor is nearly a short: 1000 / 1060.
     for v in check("g10k", &runs, 0.005) {
         assert!(rel(v, 1000.0 / 1060.0) < 0.005, "{v}");
+    }
+}
+
+/// Spectre on a remote server against ngspice, through aispice's own
+/// measurements on the returned waveforms (which work on every simulator,
+/// unlike `.meas`). Needs the Spectre variables described in `common`.
+#[tokio::test]
+async fn spectre_matches_ngspice() {
+    let (Some(sp), Some(ng)) = (spectre().await, ngspice().await) else {
+        return;
+    };
+    use aispice_sim::measure::{Measure, measure};
+    for (deck_name, checks) in [
+        (
+            "rc_ac",
+            vec![
+                "bandwidth_3db(V(out))",
+                "gain_db_at(V(out), 10k)",
+                "phase_at(V(out), 1k)",
+            ],
+        ),
+        (
+            "rc_tran",
+            vec!["value_at(V(out), 1m)", "rise_time(V(out))", "max(V(out))"],
+        ),
+    ] {
+        let netlist = parse(&deck(deck_name));
+        let mut values = Vec::new();
+        for (id, sim) in [
+            (SimId::Ngspice, &ng as &dyn Simulator),
+            (SimId::Spectre, &sp as &dyn Simulator),
+        ] {
+            let tr = translate(&netlist, id.target());
+            let out = run(sim, &tr.text, deck_name)
+                .await
+                .unwrap_or_else(|e| panic!("{id} {deck_name}: {e}\n{}", tr.text));
+            assert!(out.errors.is_empty(), "{id} {deck_name}: {:?}", out.errors);
+            let got: Vec<f64> = checks
+                .iter()
+                .map(|c| {
+                    let r = measure(c, &Measure::parse(c).unwrap(), &out.datasets);
+                    r.value
+                        .unwrap_or_else(|| panic!("{id} {deck_name} {c}: {:?}", r.note))
+                })
+                .collect();
+            values.push((id, got));
+        }
+        for (i, c) in checks.iter().enumerate() {
+            let (a, b) = (values[0].1[i], values[1].1[i]);
+            eprintln!("{deck_name} {c}: ngspice {a:.6} spectre {b:.6}");
+            assert!(
+                rel(a, b) < 0.01,
+                "{deck_name} {c}: ngspice {a} vs Spectre {b}"
+            );
+        }
     }
 }

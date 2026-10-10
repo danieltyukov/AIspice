@@ -3,11 +3,15 @@
 //! ngspice and Xyce tests run whenever the binary is found and skip (with a
 //! message) otherwise. LTspice tests also need `AISPICE_LTSPICE_TESTS=1`,
 //! because each run under Wine takes seconds and needs a virtual display.
+//! Spectre runs on a remote server and needs `AISPICE_SPECTRE_HOST` and
+//! `AISPICE_SPECTRE_DIR`, plus `AISPICE_SPECTRE_SETUP` for a command that
+//! puts Spectre on the path; nothing about the server is in the repository.
 
 #![allow(dead_code)]
 
 use aispice_core::netlist::{Netlist, build::build};
 use aispice_core::symbol::SymbolLibrary;
+use aispice_sim::backend::spectre::{Spectre, SpectreConfig};
 use aispice_sim::backend::{Ltspice, Ngspice, SimError, SimId, SimJob, SimOutput, Simulator, Xyce};
 use aispice_sim::dialect::{Translated, translate};
 use aispice_sim::models;
@@ -69,6 +73,27 @@ pub async fn ltspice() -> Option<Ltspice> {
         Some(lt)
     } else {
         eprintln!("skipped: LTspice not found");
+        None
+    }
+}
+
+pub async fn spectre() -> Option<Spectre> {
+    let (Ok(host), Ok(dir)) = (
+        std::env::var("AISPICE_SPECTRE_HOST"),
+        std::env::var("AISPICE_SPECTRE_DIR"),
+    ) else {
+        eprintln!("skipped: set AISPICE_SPECTRE_HOST and AISPICE_SPECTRE_DIR to run Spectre");
+        return None;
+    };
+    let mut cfg = SpectreConfig::new(host, dir);
+    if let Ok(setup) = std::env::var("AISPICE_SPECTRE_SETUP") {
+        cfg.command = format!("{setup} && {}", cfg.command);
+    }
+    let sp = Spectre::new(cfg);
+    if sp.detect().await.found {
+        Some(sp)
+    } else {
+        eprintln!("skipped: Spectre host not reachable");
         None
     }
 }
