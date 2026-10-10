@@ -1,0 +1,148 @@
+.center {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  container-type: inline-size;
+  container-name: center;
+}
+
+/* A narrow centre drops the path (the list and the status bar show it) so the
+   actions stay on one row. */
+@container center (max-width: 640px) {
+  .center-path {
+    display: none;
+  }
+
+  .center-toolbar .sim-pick {
+    max-width: 128px;
+  }
+
+  .center-sep {
+    display: none;
+  }
+
+  .tab {
+    padding-inline: 9px;
+  }
+}
+
+.center-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 8px 0 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 11px 11px 10px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+  transition: color var(--dur-quick) var(--ease);
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected='true'] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tab[aria-selected='true']::after,
+.tab[data-pinned]::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+}
+
+.tab[data-pinned]::after {
+  background: var(--border-strong);
+}
+
+.tab:focus-visible {
+  outline-offset: -4px;
+}
+
+.center-tools {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
+}
+
+.center-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.center-path {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-mini);
+  color: var(--muted);
+}
+
+.center-sep {
+  width: 1px;
+  height: 18px;
+  margin-inline: 2px;
+  background: var(--border);
+}
+
+.center-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.split {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.split-top {
+  flex: 0 0 50%;
+  min-height: 0;
+}
+
+.split-bottom {
+  flex: 1 1 0;
+  min-height: 0;
+}

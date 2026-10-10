@@ -1,0 +1,177 @@
+.welcome {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.welcome-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
+  padding: 56px 24px 40px;
+}
+
+.welcome-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.welcome-title {
+  font-size: var(--fs-h1);
+  letter-spacing: var(--ls-h1);
+}
+
+.welcome-lede {
+  margin-top: 2px;
+  font-size: var(--fs-base);
+  color: var(--muted);
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.welcome-kbd {
+  border-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
+  background: transparent;
+  color: var(--on-accent);
+  opacity: 0.85;
+}
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .welcome-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-inline: -6px;
+}
+
+.recent-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px;
+  border-radius: var(--r-control);
+  text-align: start;
+  transition: background-color var(--dur-quick) var(--ease);
+}
+
+.recent-item:hover {
+  background: var(--hover);
+}
+
+.recent-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.recent-name {
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+
+.recent-path {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+}
+
+.env-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-block: -4px;
+}
+
+.env {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.env .section-title {
+  margin-top: 4px;
+}
+
+.env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.env-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.env-row > .dot {
+  margin-top: 5px;
+}
+
+.env-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.env-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-small);
+}
+
+.env-name {
+  font-weight: 500;
+}
+
+.env-state {
+  color: var(--muted);
+  font-size: var(--fs-mini);
+}
+
+.env-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-micro);
+  color: var(--faint);
+}
+
+.env-hint {
+  font-size: var(--fs-mini);
+  color: var(--muted);
+}
+
+.env-foot {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-micro);
+  color: var(--faint);
+}
