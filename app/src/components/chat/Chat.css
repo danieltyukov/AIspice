@@ -504,6 +504,35 @@
   border-radius: var(--r-control);
 }
 
+.op-table {
+  font-size: var(--fs-mini);
+}
+
+.op-table th,
+.op-table td {
+  padding: 5px 6px;
+}
+
+.op-table th:first-child,
+.op-table td:first-child {
+  padding-left: 0;
+}
+
+.op-table th:last-child,
+.op-table td:last-child {
+  padding-right: 0;
+}
+
+.op-type {
+  display: block;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+
+.op-nodes .tool-kv {
+  margin-top: 6px;
+}
+
 .tool-input {
   font-size: var(--fs-micro);
   color: var(--faint);

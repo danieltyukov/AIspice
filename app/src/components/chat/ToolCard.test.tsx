@@ -119,6 +119,58 @@ describe("ToolCard", () => {
     expect((window as unknown as { __plot?: number }).__plot).toBeUndefined();
   });
 
+  it("tabulates an operating point and marks the device a check names", async () => {
+    const mirrorCheck =
+      "M3 shares its gate with diode-connected M2, so it looks like a mirror output, but it is in triode (vds 128.6mV < vdsat 442.2mV): its current will not track M2's until it has about 313.6mV more vds.";
+    const call: ChatToolCall = {
+      id: "t7",
+      name: "operating_point",
+      input: { circuit: "cs.cir" },
+      output: {
+        content: [{ type: "text", text: "Operating point of cs.cir (ngspice .op):" }],
+        is_error: false,
+        data: {
+          kind: "operating_point",
+          simulator: "ngspice",
+          nodes: { "V(d)": 1.6917, "I(vdd)": -4.795e-4 },
+          devices: [
+            { name: "M1", type: "nmos", region: "saturation", params: { id: 3.308e-4, gm: 8.271e-4, gm_id: 2.5, gm_gds: 129.23 }, notes: [] },
+            { name: "M3", type: "nmos", region: "triode", params: { id: 4.871e-5, gm: 1.289e-4, gm_id: 2.646, gm_gds: 0.4087 }, notes: [] },
+            { name: "Q1", type: "npn", region: "active", params: { ic: 9.347e-4, gm: 0.03614, beta: 100 }, notes: [] },
+            { name: "D1", type: "diode", region: null, params: { id: 1e-3, rd: 25.86 }, notes: [] },
+          ],
+          checks: [mirrorCheck],
+        },
+      },
+    };
+    expect(toolTitle(call, false).title).toBe("Operating point: 4 devices, 1 to check");
+    await renderWithStore(<ToolCard call={call} streaming={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /Operating point: 4 devices/ }));
+    expect(screen.getByText("Saturation")).toHaveAttribute("data-tone", "pass");
+    expect(screen.getByText("Triode")).toHaveAttribute("data-tone", "fail");
+    expect(screen.getByText("Active")).toHaveAttribute("data-tone", "pass");
+    expect(screen.getByText("2.5/V")).toBeInTheDocument();
+    expect(screen.getByText("129")).toBeInTheDocument();
+    expect(screen.getByText("β 100")).toBeInTheDocument();
+    expect(screen.getByText(/diode, rd 25\.9/)).toBeInTheDocument();
+    expect(screen.getByText(mirrorCheck)).toBeInTheDocument();
+    expect(screen.getByText("V(d)")).toBeInTheDocument();
+  });
+
+  it("says when an operating point has node values only", () => {
+    const call: ChatToolCall = {
+      id: "t8",
+      name: "operating_point",
+      input: {},
+      output: {
+        content: [],
+        is_error: false,
+        data: { kind: "operating_point", simulator: "ltspice", nodes: {}, devices: [], checks: [], note: "Device parameters need ngspice." },
+      },
+    };
+    expect(toolTitle(call, false).title).toBe("Operating point from LTspice: nodes only");
+  });
+
   it("renders a specs table with pass and fail chips", async () => {
     const call: ChatToolCall = { id: "t5", name: "check_specs", input: {}, output: { content: [], is_error: false, data: { kind: "specs", report } } };
     await renderWithStore(<ToolCard call={call} streaming={false} />);

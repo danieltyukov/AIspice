@@ -242,6 +242,17 @@ export type ToolData =
   | { kind: "optimize"; best: Record<string, string>; evaluations: number; report: SpecReport | null }
   | { kind: "montecarlo"; runs: number; yield_pct: number; report: string }
   | { kind: "poles_zeros"; poles: PzRoot[]; zeros: PzRoot[]; stable: boolean }
+  | {
+      kind: "operating_point";
+      simulator: SimulatorId;
+      /** Node voltages and source currents: `V(out)`, `I(vdd)`. */
+      nodes: Record<string, number>;
+      devices: OpDevice[];
+      /** Devices whose bias looks wrong for what they seem to do; each starts with the device name. */
+      checks: string[];
+      /** Set when device values could not be had (no ngspice). */
+      note?: string;
+    }
   | { kind: "generic"; value: unknown };
 
 /** A pole or zero in Hz. `q` is set for a damped complex root only. */
@@ -250,6 +261,24 @@ export interface PzRoot {
   im_hz: number;
   f0_hz: number;
   q: number | null;
+}
+
+export type OpRegion = "cutoff" | "subthreshold" | "triode" | "saturation" | "active" | "reverse_active";
+
+/**
+ * One device's operating point, in SI units and in the device's own polarity
+ * (for a PMOS, vgs is vsg). `params` holds only what the model reports and
+ * what follows from it. MOSFET: id, vgs, vds, vbs, vth or von, vdsat, gm,
+ * gds, gmbs, gm_id, gm_gds, cgs, cgd, w, l. BJT: ic, ib, beta, vbe, vce, gm,
+ * rpi, ro, cpi, cmu. Diode: id, vd, rd, cd.
+ */
+export interface OpDevice {
+  /** `M1`, or `X1.M7` inside a subcircuit. */
+  name: string;
+  type: "nmos" | "pmos" | "mosfet" | "npn" | "pnp" | "bjt" | "diode";
+  region: OpRegion | null;
+  params: Record<string, number>;
+  notes: string[];
 }
 
 export type AgentEvent =

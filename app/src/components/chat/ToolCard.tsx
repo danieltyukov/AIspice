@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ChatToolCall, ToolData } from "../../ipc/types";
-import { duration, eng } from "../../lib/format";
+import type { ChatToolCall, OpDevice, OpRegion, ToolData } from "../../ipc/types";
+import { duration, eng, plural } from "../../lib/format";
 import { sanitizeSvgElement } from "../../lib/sanitizeSvg";
 import { useStore, useStoreApi } from "../../store/context";
 import { SpecTable } from "../SpecTable";
@@ -227,9 +227,124 @@ function DataDetails({ data }: { data: ToolData }) {
         </dl>
       );
     }
+    case "operating_point":
+      return <OperatingPointDetails data={data} />;
     case "generic":
       return <pre className="tool-text">{JSON.stringify(data.value, null, 2)?.slice(0, 4000)}</pre>;
   }
+}
+
+const OP_REGION: Record<OpRegion, string> = {
+  cutoff: "Cutoff",
+  subthreshold: "Subthreshold",
+  triode: "Triode",
+  saturation: "Saturation",
+  active: "Active",
+  reverse_active: "Reverse",
+};
+
+const OP_ROWS = 30;
+
+/** Where an amplifying device normally sits: saturation for a MOSFET, active for a BJT. */
+function regionTone(d: OpDevice, flagged: boolean): "pass" | "fail" | "info" {
+  if (flagged) return "fail";
+  const bjt = d.type === "npn" || d.type === "pnp" || d.type === "bjt";
+  if (bjt ? d.region === "active" : d.region === "saturation") return "pass";
+  return "info";
+}
+
+/** Three significant digits without exponent notation for gains and ratios. */
+function ratio(v: number): string {
+  return Math.abs(v) >= 1000 ? Math.round(v).toString() : Number(v.toPrecision(3)).toString();
+}
+
+function OperatingPointDetails({ data }: { data: Extract<ToolData, { kind: "operating_point" }> }) {
+  const nodes = Object.entries(data.nodes);
+  const flagged = (name: string) => data.checks.some((c) => c.startsWith(`${name} `));
+  return (
+    <div className="tool-section">
+      {data.note ? <p className="panel-note">{data.note}</p> : null}
+      {data.devices.length > 0 ? (
+        <table className="data-table op-table">
+          <thead>
+            <tr>
+              <th scope="col">Device</th>
+              <th scope="col">Region</th>
+              <th scope="col" className="num">
+                Current
+              </th>
+              <th scope="col" className="num">
+                gm
+              </th>
+              <th scope="col" className="num">
+                gm/Id
+              </th>
+              <th scope="col" className="num" title="gm/gds for a MOSFET, beta for a BJT">
+                Gain
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.devices.slice(0, OP_ROWS).map((d) => {
+              const p = d.params;
+              const current = p.id ?? p.ic;
+              return (
+                <tr key={d.name}>
+                  <td>
+                    <span className="mono">{d.name}</span>
+                    <span className="op-type">
+                      {d.type}
+                      {p.rd !== undefined ? `, rd ${eng(p.rd, "Ω", 3)}` : ""}
+                    </span>
+                  </td>
+                  <td>
+                    {d.region ? (
+                      <span className="chip" data-tone={regionTone(d, flagged(d.name))}>
+                        {OP_REGION[d.region]}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="num">{current !== undefined ? eng(current, "A", 3) : ""}</td>
+                  <td className="num">{p.gm !== undefined ? eng(p.gm, "S", 3) : ""}</td>
+                  <td className="num">{p.gm_id !== undefined ? `${ratio(p.gm_id)}/V` : ""}</td>
+                  <td className="num">
+                    {p.gm_gds !== undefined ? ratio(p.gm_gds) : p.beta !== undefined ? `β ${ratio(p.beta)}` : ""}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : data.note ? null : (
+        <p className="panel-note">No MOSFETs, BJTs or diodes.</p>
+      )}
+      {data.devices.length > OP_ROWS ? (
+        <p className="panel-note">{plural(data.devices.length - OP_ROWS, "more device")} in the text result.</p>
+      ) : null}
+      {data.checks.length > 0 ? (
+        <ul className="tool-warnings">
+          {data.checks.map((c) => (
+            <li key={c}>
+              <span className="tool-warn-label">Check</span> {c}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {nodes.length > 0 ? (
+        <details className="tool-input op-nodes">
+          <summary>Node voltages and source currents</summary>
+          <dl className="tool-kv">
+            {nodes.slice(0, 60).map(([k, v]) => (
+              <div key={k}>
+                <dt className="mono">{k}</dt>
+                <dd className="mono">{eng(v, k.startsWith("V(") ? "V" : "A")}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 /** A plot from a tool result, through the same SVG policy as the schematic. */

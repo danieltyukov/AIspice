@@ -29,6 +29,7 @@ const RUNNING: Record<string, (c: string | null) => string> = {
   monte_carlo: () => "Running Monte Carlo",
   sweep: () => "Sweeping",
   poles_zeros: () => "Finding poles and zeros",
+  operating_point: (c) => `Checking the bias of ${c ?? "the circuit"}`,
   history: () => "Reading history",
   undo: () => "Undoing",
   templates: () => "Looking up templates",
@@ -92,6 +93,12 @@ export function toolTitle(call: ChatToolCall, streaming: boolean): { title: stri
         title: `${data.stable ? "Stable" : "Not stable"}: ${plural(data.poles.length, "pole")}, ${plural(data.zeros.length, "zero")}`,
         tone: "done",
       };
+    case "operating_point": {
+      if (data.note) return { title: `Operating point from ${SIMULATOR_NAMES[data.simulator]}: nodes only`, tone: "done" };
+      const n = plural(data.devices.length, "device");
+      const k = data.checks.length;
+      return { title: `Operating point: ${n}${k ? `, ${k} to check` : ""}`, tone: "done" };
+    }
     default:
       break;
   }

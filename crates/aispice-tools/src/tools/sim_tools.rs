@@ -12,6 +12,7 @@ use aispice_sim::backend::SimId;
 use aispice_sim::dataset::{AnalysisKind, Dataset, Quantity};
 use aispice_sim::measure::{Measure, MeasureResult, measure};
 use aispice_sim::montecarlo::{self, Tolerance};
+use aispice_sim::oppoint;
 use aispice_sim::optimize::{
     self, CmaEs, CmaEsOptions, Goal, NelderMead, NelderMeadOptions, Objective, Param, RunOptions,
 };
@@ -1267,11 +1268,12 @@ fn pz_node(netlist: &Netlist, given: &str) -> Result<String, String> {
         })
 }
 
-/// Directives left out of a pole-zero run. ngspice runs every analysis in a
-/// deck, `.meas`, `.four` and print lines belong to another analysis,
-/// `.step` is not ngspice syntax, and with a `.save` line ngspice saves no
-/// pole-zero data and skips the analysis.
-fn left_out_of_pz(directive: &str) -> bool {
+/// Directives left out when a tool runs one analysis of its own (`.pz`,
+/// `.op`). ngspice runs every analysis in a deck, `.meas`, `.four` and print
+/// lines belong to another analysis, `.step` is not ngspice syntax, and the
+/// tool decides what is saved (with a `.save` line ngspice saves no
+/// pole-zero data and skips the analysis).
+fn left_out_of_own_run(directive: &str) -> bool {
     let kw = directive
         .split_whitespace()
         .next()
@@ -1294,19 +1296,53 @@ fn left_out_of_pz(directive: &str) -> bool {
         )
 }
 
-/// The circuit with `.pz` as its only analysis.
-pub fn pz_netlist(netlist: &Netlist, pz: &str) -> Netlist {
+/// The circuit with `analysis` as its only analysis and `extra` directives
+/// added, for a tool's own run.
+pub fn only_analysis(netlist: &Netlist, analysis: &str, extra: Vec<String>) -> Netlist {
     let mut n = netlist.clone();
     n.items
-        .retain(|l| !matches!(l, Line::Directive { text } if left_out_of_pz(text)));
+        .retain(|l| !matches!(l, Line::Directive { text } if left_out_of_own_run(text)));
     crate::runner::apply_mods(
         &mut n,
         &RunMods {
-            analysis: Some(pz.to_string()),
-            extra: Vec::new(),
+            analysis: Some(analysis.to_string()),
+            extra,
         },
     );
     n
+}
+
+/// Set run-only values (`{"R1": "2.2k"}`) in a netlist.
+fn apply_params(
+    netlist: &mut Netlist,
+    params: &BTreeMap<String, ParamValue>,
+) -> Result<(), String> {
+    for (name, value) in params {
+        let v = match value {
+            ParamValue::Value(v) => Some(*v),
+            ParamValue::Text(t) => aispice_sim::expr::parse_number(t),
+        };
+        let Some(v) = v else {
+            return Err(format!("params: the value of {name} is not a number"));
+        };
+        sweep::set_value(netlist, name, v).map_err(|e| format!("params: {e}"))?;
+    }
+    Ok(())
+}
+
+/// `, with R1=2.2k C1=10n` for a report heading, or nothing.
+fn params_text(params: &BTreeMap<String, ParamValue>) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let set: Vec<String> = params
+        .iter()
+        .map(|(k, v)| match v {
+            ParamValue::Value(v) => format!("{k}={}", units::format(*v)),
+            ParamValue::Text(s) => format!("{k}={s}"),
+        })
+        .collect();
+    format!(", with {}", set.join(" "))
 }
 
 fn roots_json(roots: &[Root]) -> Vec<Value> {
@@ -1361,25 +1397,17 @@ impl Tool for PolesZeros {
                 return ToolOutput::error(e);
             }
         };
-        for (name, value) in &input.params {
-            let v = match value {
-                ParamValue::Value(v) => Some(*v),
-                ParamValue::Text(t) => aispice_sim::expr::parse_number(t),
-            };
-            let Some(v) = v else {
-                return ToolOutput::error(format!("params: the value of {name} is not a number"));
-            };
-            if let Err(e) = sweep::set_value(&mut netlist, name, v) {
-                return ToolOutput::error(format!("params: {e}"));
-            }
+        if let Err(e) = apply_params(&mut netlist, &input.params) {
+            return ToolOutput::error(e);
         }
         let kind = match input.transfer {
             Transfer::Vol => "vol",
             Transfer::Cur => "cur",
         };
-        let netlist = pz_netlist(
+        let netlist = only_analysis(
             &netlist,
             &format!(".pz {in_p} {in_n} {out_p} {out_n} {kind} pz"),
+            Vec::new(),
         );
         // Not kept as a run: measure and plot keep using the circuit's own
         // latest simulation.
@@ -1432,19 +1460,7 @@ impl Tool for PolesZeros {
             pair(&out_p, &out_n),
             pair(&in_p, &in_n),
             input.circuit,
-            if input.params.is_empty() {
-                String::new()
-            } else {
-                let set: Vec<String> = input
-                    .params
-                    .iter()
-                    .map(|(k, v)| match v {
-                        ParamValue::Value(v) => format!("{k}={}", units::format(*v)),
-                        ParamValue::Text(s) => format!("{k}={s}"),
-                    })
-                    .collect();
-                format!(", with {}", set.join(" "))
-            }
+            params_text(&input.params)
         );
         t.push_str(&pz.report());
         for n in warnings.iter().chain(&run.notes) {
@@ -1458,6 +1474,297 @@ impl Tool for PolesZeros {
             "poles": roots_json(&pz.poles),
             "zeros": roots_json(&pz.zeros),
             "stable": pz.stability() == Stability::Stable,
+        }))
+    }
+}
+
+const OP_NEEDS_NGSPICE: &str = "Device parameters (region, gm, gds, gm/id and the rest) need ngspice, which was not found on this machine. Install it (Debian or Ubuntu: `sudo apt install ngspice`; Fedora: `sudo dnf install ngspice`; macOS: `brew install ngspice`; Windows: the zip from https://ngspice.sourceforge.io with its bin folder on PATH) and try again.";
+
+/// At most this many devices have their quantities saved in one run.
+const MAX_OP_DEVICES: usize = 400;
+/// At most this many device lines go into the text.
+const MAX_OP_LINES: usize = 60;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct OperatingPointInput {
+    pub circuit: String,
+    /// Values for this analysis only, without changing the file: an element
+    /// (`R1`) or `.param` name and its value, e.g. `{"Rbias": "47k"}`.
+    #[serde(default)]
+    pub params: BTreeMap<String, ParamValue>,
+    /// Report only these devices: instance names such as `M1`, `X1.M7` for
+    /// M7 inside subcircuit instance X1, or `X1` for every device in it.
+    /// Default: every MOSFET, BJT and diode.
+    #[serde(default)]
+    pub devices: Vec<String>,
+}
+
+pub struct OperatingPoint {
+    pub ws: Arc<Workspace>,
+}
+
+/// `Nodes: V(a)=1V, ...` and `Source currents: ...` lines.
+fn op_nodes_text(nodes: &[(String, f64)]) -> String {
+    let list = |volts: bool, unit: &str| {
+        let items: Vec<String> = nodes
+            .iter()
+            .filter(|(k, _)| k.starts_with("V(") == volts)
+            .take(60)
+            .map(|(k, v)| format!("{k}={}", units::format_with_unit(*v, unit)))
+            .collect();
+        items.join(", ")
+    };
+    let mut t = String::new();
+    let (v, i) = (list(true, "V"), list(false, "A"));
+    if !v.is_empty() {
+        t.push_str(&format!("Nodes: {v}\n"));
+    }
+    if !i.is_empty() {
+        t.push_str(&format!(
+            "Source currents (into the + terminal, so negative means the source delivers it): {i}\n"
+        ));
+    }
+    t
+}
+
+fn op_nodes_json(nodes: &[(String, f64)]) -> serde_json::Map<String, Value> {
+    nodes.iter().map(|(k, v)| (k.clone(), json!(v))).collect()
+}
+
+impl OperatingPoint {
+    /// One `.op` run, not kept: measure and plot keep using the circuit's
+    /// own latest simulation.
+    async fn run(
+        &self,
+        p: &crate::project::Project,
+        circuit: &str,
+        netlist: &Netlist,
+        std_libs: &[String],
+        simulator: Option<&str>,
+        ctx: &ToolContext,
+    ) -> Result<Arc<StoredRun>, String> {
+        self.ws
+            .runner
+            .run_netlist_with(p, circuit, netlist, std_libs, simulator, &ctx.cancel, false)
+            .await
+            .map_err(|e| format!("The operating point failed: {e}"))
+    }
+}
+
+#[async_trait]
+impl Tool for OperatingPoint {
+    fn spec(&self) -> ToolSpec {
+        spec::<OperatingPointInput>(
+            "operating_point",
+            "Check bias: the DC operating point with each semiconductor device's small-signal values, for sizing transistors (the gm/Id method). MOSFETs: region (cutoff, subthreshold, triode, saturation), id, vgs, vds, vbs, vth (von for level 1 to 3), vdsat, gm, gds, gmbs, gm/id, intrinsic gain gm/gds, cgs and cgd when the model has them, W and L. BJTs: region (active, saturation, cutoff, reverse active), ic, ib, beta, vbe, vce, gm, rpi, ro. Diodes: id, vd, rd. Also node voltages and source currents. Devices inside subcircuits are named by path, as X1.M7. Points out devices in triode or cutoff that look like they should be saturated, such as a current-mirror output. Values are in each device's own polarity (for a PMOS, vgs is vsg). The circuit's own analyses, .meas, .step and .save lines are left out of this run and the file is not changed. Device values need ngspice; without it only node voltages and source currents come back, from LTspice or Xyce.",
+        )
+    }
+
+    async fn call(&self, ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: OperatingPointInput = input!(input);
+        let p = match self.ws.project() {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let (mut netlist, std_libs, warnings) = match self.ws.runner.netlist_for(&p, &input.circuit)
+        {
+            Ok(v) => v,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        if let Err(e) = apply_params(&mut netlist, &input.params) {
+            return ToolOutput::error(e);
+        }
+        let heading = |sim: &str| {
+            format!(
+                "Operating point of {}{} ({sim} .op):\n",
+                input.circuit,
+                params_text(&input.params)
+            )
+        };
+        let have_ngspice = self
+            .ws
+            .runner
+            .detect()
+            .await
+            .iter()
+            .any(|(id, d)| *id == SimId::Ngspice && d.found);
+        let mut notes: Vec<String> = warnings;
+
+        if !have_ngspice {
+            let deck = only_analysis(&netlist, ".op", Vec::new());
+            let run = match self
+                .run(&p, &input.circuit, &deck, &std_libs, None, ctx)
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => return ToolOutput::error(format!("{e}\n{OP_NEEDS_NGSPICE}")),
+            };
+            let nodes = oppoint::node_values(&run.output.datasets);
+            let mut t = heading(run.simulator.name());
+            t.push_str(&op_nodes_text(&nodes));
+            t.push_str(&format!(
+                "Only node voltages and source currents: {OP_NEEDS_NGSPICE}\n"
+            ));
+            for n in notes.iter().chain(&run.notes) {
+                t.push_str(&format!("  note: {n}\n"));
+            }
+            return ToolOutput::text(t).with_data(json!({
+                "kind": "operating_point",
+                "simulator": run.simulator,
+                "nodes": op_nodes_json(&nodes),
+                "devices": [],
+                "checks": [],
+                "note": OP_NEEDS_NGSPICE,
+            }));
+        }
+
+        // First run: `savecurrents` lists every device by its full name.
+        let deck = only_analysis(&netlist, ".op", vec![".options savecurrents".into()]);
+        let first = match self
+            .run(&p, &input.circuit, &deck, &std_libs, Some("ngspice"), ctx)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return ToolOutput::error(e),
+        };
+        let resolved = aispice_sim::models::resolve_with(
+            &netlist,
+            &std_libs,
+            &self.ws.runner.ltspice_lib_dirs(),
+        )
+        .netlist;
+        let found: Vec<(String, Option<oppoint::Located>)> =
+            oppoint::discover(&first.output.datasets)
+                .into_iter()
+                .map(|id| {
+                    let at = oppoint::locate(&resolved, &id);
+                    (id, at)
+                })
+                .collect();
+        let name_of = |(id, at): &(String, Option<oppoint::Located>)| {
+            at.as_ref()
+                .map_or_else(|| oppoint::display_name(id), |l| l.name.clone())
+        };
+        let mut chosen: Vec<(String, Option<oppoint::Located>)> = if input.devices.is_empty() {
+            found.clone()
+        } else {
+            found
+                .iter()
+                .filter(|d| {
+                    let name = name_of(d);
+                    input
+                        .devices
+                        .iter()
+                        .any(|f| oppoint::matches(&name, &d.0, f))
+                })
+                .cloned()
+                .collect()
+        };
+        if chosen.is_empty() && !input.devices.is_empty() {
+            let names: Vec<String> = found.iter().map(name_of).take(80).collect();
+            return ToolOutput::error(if names.is_empty() {
+                "the circuit has no MOSFETs, BJTs or diodes".to_string()
+            } else {
+                format!(
+                    "no device matches {}; the circuit's MOSFETs, BJTs and diodes are: {}",
+                    input.devices.join(", "),
+                    names.join(", ")
+                )
+            });
+        }
+        let skipped = chosen.len().saturating_sub(MAX_OP_DEVICES);
+        chosen.truncate(MAX_OP_DEVICES);
+
+        // Second run: each device's quantities.
+        let mut devices: Vec<oppoint::Device> = Vec::new();
+        let mut run = first.clone();
+        if !chosen.is_empty() {
+            let ids: Vec<String> = chosen.iter().map(|(id, _)| id.clone()).collect();
+            let deck = only_analysis(&netlist, ".op", oppoint::save_directives(&ids));
+            match self
+                .run(&p, &input.circuit, &deck, &std_libs, Some("ngspice"), ctx)
+                .await
+            {
+                Ok(second) => {
+                    let missing = oppoint::unrecognized(&second.output.log);
+                    let values = oppoint::quantities(&second.output.datasets, &missing);
+                    let none = BTreeMap::new();
+                    devices = chosen
+                        .iter()
+                        .filter_map(|(id, at)| {
+                            oppoint::device(id, values.get(id).unwrap_or(&none), at.as_ref())
+                        })
+                        .collect();
+                    oppoint::sort(&mut devices);
+                    run = second;
+                }
+                Err(e) => notes.push(format!("device values could not be read: {e}")),
+            }
+        }
+
+        let nodes = oppoint::node_values(&run.output.datasets);
+        let checks = oppoint::checks(&devices);
+        let mut t = heading("ngspice");
+        t.push_str(&op_nodes_text(&nodes));
+        if devices.is_empty() {
+            if found.is_empty() {
+                t.push_str("No MOSFETs, BJTs or diodes in this circuit.\n");
+            }
+        } else {
+            t.push_str("Devices (values in each device's own polarity: for a PMOS vgs is vsg and vds is vsd, for a PNP vbe is veb and vce is vec, and their currents count positive from source to drain or emitter to collector):\n");
+            for d in devices.iter().take(MAX_OP_LINES) {
+                t.push_str(&format!("  {}\n", oppoint::line(d)));
+            }
+            let more = devices.len().saturating_sub(MAX_OP_LINES) + skipped;
+            if more > 0 {
+                t.push_str(&format!(
+                    "  and {more} more; pass `devices` to see particular ones\n"
+                ));
+            }
+        }
+        if !checks.is_empty() {
+            t.push_str("Check:\n");
+            for c in &checks {
+                t.push_str(&format!("  {c}\n"));
+            }
+        }
+        for n in &run.notes {
+            if !notes.contains(n) {
+                notes.push(n.clone());
+            }
+        }
+        for n in &notes {
+            t.push_str(&format!("  note: {n}\n"));
+        }
+        for e in &run.output.errors {
+            t.push_str(&format!("  error: {e}\n"));
+        }
+        let shown_warnings = run
+            .output
+            .warnings
+            .iter()
+            .filter(|w| !oppoint::is_unrecognized_warning(w));
+        for w in shown_warnings.take(5) {
+            t.push_str(&format!("  warning: {w}\n"));
+        }
+        let devices_json: Vec<Value> = devices
+            .iter()
+            .map(|d| {
+                json!({
+                    "name": d.name,
+                    "type": d.type_name(),
+                    "region": d.region,
+                    "params": d.params,
+                    "notes": d.notes,
+                })
+            })
+            .collect();
+        ToolOutput::text(t).with_data(json!({
+            "kind": "operating_point",
+            "simulator": SimId::Ngspice,
+            "nodes": op_nodes_json(&nodes),
+            "devices": devices_json,
+            "checks": checks,
         }))
     }
 }

@@ -279,6 +279,295 @@ async fn poles_zeros_on_ngspice() {
     );
 }
 
+/// A level-1 NMOS common-source stage beside a current mirror whose output
+/// has too large a load to stay saturated. The deck's own analysis and
+/// measurement must not get in the way.
+const CS_OP: &str = "* NMOS common source and a starved mirror, level 1
+VDD vdd 0 5
+VG g 0 1.5
+RD vdd d 10k
+M1 d g 0 0 nch W=10u L=1u
+IREF vdd ref 100u
+M2 ref ref 0 0 nch W=10u L=1u
+M3 out ref 0 0 nch W=10u L=1u
+RL vdd out 100k
+.model nch nmos level=1 vto=0.7 kp=100u lambda=0.02
+.tran 1u 10u
+.meas tran vmax MAX V(d)
+.end
+";
+
+/// A BJT common-emitter stage biased from the supply through RB, a diode fed
+/// 1 mA, and an NMOS inside a subcircuit with its own model.
+const MIXED_OP: &str = "* common emitter, diode, subcircuit
+VCC vcc 0 10
+RB vcc b 1Meg
+RC vcc c 4.7k
+Q1 c b 0 npn1
+ID1 vcc a 1m
+D1 a 0 dmod
+VIN in 0 1.2
+X1 vcc in sout stage
+.model npn1 npn is=1e-14 bf=100
+.model dmod d is=1e-14
+.subckt stage top g out
+RL top out 20k
+M7 out g 0 0 nsub W=5u L=1u
+.model nsub nmos level=1 vto=0.7 kp=100u
+.ends
+.op
+.end
+";
+
+/// A BSIM4 PMOS, whose type only its model card tells, and a 2N3904 with no
+/// `.model` line, which aispice supplies.
+const BSIM_OP: &str = "* bsim4 pmos and a library npn
+VDD vdd 0 1.8
+VG g 0 0.6
+MP1 d g vdd vdd pch W=2u L=0.18u
+RL d 0 2k
+.model pch pmos level=14 version=4.8.1
+VB b 0 0.6
+RC vdd c 1k
+Q2 c b 0 2N3904
+.op
+.end
+";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn operating_point_on_ngspice() {
+    if !have_ngspice() {
+        eprintln!("skipped: ngspice not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("cs.cir"), CS_OP).unwrap();
+    std::fs::write(dir.path().join("mixed.cir"), MIXED_OP).unwrap();
+    std::fs::write(dir.path().join("bsim.cir"), BSIM_OP).unwrap();
+    let project = Project::open(dir.path(), ProjectOptions::default()).unwrap();
+    let ws = Arc::new(Workspace::with_project(project));
+    let edits: Value = serde_json::from_str(RC).unwrap();
+    let op = "operating_point";
+    let results = run_script(
+        ws.clone(),
+        vec![
+            tool_reply([("a", op, json!({"circuit": "cs.cir"}))]),
+            tool_reply([(
+                "b",
+                op,
+                json!({"circuit": "cs.cir", "params": {"RD": "5k"}, "devices": ["m1"]}),
+            )]),
+            tool_reply([("c", op, json!({"circuit": "mixed.cir"}))]),
+            tool_reply([("d", op, json!({"circuit": "mixed.cir", "devices": ["X1"]}))]),
+            tool_reply([(
+                "e",
+                "create_schematic",
+                json!({"circuit": "rc.asc", "edits": edits}),
+            )]),
+            tool_reply([("f", op, json!({"circuit": "rc.asc"}))]),
+            tool_reply([("g", op, json!({"circuit": "cs.cir", "devices": ["M99"]}))]),
+            tool_reply([("h", op, json!({"circuit": "bsim.cir"}))]),
+            text_reply("done"),
+        ],
+    )
+    .await;
+    assert_eq!(results.len(), 8);
+    for (name, text, is_error, _) in &results[..6] {
+        assert!(!is_error, "{name} failed:\n{text}");
+    }
+    let data = |i: usize| results[i].3.clone().unwrap();
+    let within = |a: f64, b: f64, tol: f64| (a - b).abs() / b.abs() < tol;
+    let device = |d: &Value, name: &str| -> Value {
+        d["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == name)
+            .unwrap_or_else(|| panic!("no {name} in {d}"))
+            .clone()
+    };
+
+    // Square law with channel-length modulation: id = k (1 + lambda vds)
+    // with k = kp/2 W/L vov^2 and vds = VDD - RD id, so
+    // id = k (1 + lambda VDD) / (1 + k lambda RD), and gm = 2 id / vov.
+    let (kp, wl, vto, lambda, vdd, vgs) = (100e-6, 10.0, 0.7, 0.02, 5.0, 1.5);
+    let vov = vgs - vto;
+    let k = 0.5 * kp * wl * vov * vov;
+    let hand_id = |rd: f64| k * (1.0 + lambda * vdd) / (1.0 + k * lambda * rd);
+    let (text, d) = (&results[0].1, data(0));
+    assert_eq!(d["kind"], "operating_point");
+    assert_eq!(d["simulator"], "ngspice");
+    let m1 = device(&d, "M1");
+    assert_eq!(m1["type"], "nmos", "{text}");
+    assert_eq!(m1["region"], "saturation", "{text}");
+    let id = m1["params"]["id"].as_f64().unwrap();
+    assert!(
+        within(id, hand_id(10e3), 0.01),
+        "id {id} vs {}\n{text}",
+        hand_id(10e3)
+    );
+    let gm = m1["params"]["gm"].as_f64().unwrap();
+    assert!(
+        within(gm, 2.0 * hand_id(10e3) / vov, 0.01),
+        "gm {gm}\n{text}"
+    );
+    assert!(within(
+        m1["params"]["gm_id"].as_f64().unwrap(),
+        2.0 / vov,
+        0.01
+    ));
+    assert!(within(m1["params"]["von"].as_f64().unwrap(), vto, 1e-6));
+    assert!(within(m1["params"]["vdsat"].as_f64().unwrap(), vov, 1e-6));
+    assert!(m1["params"]["vth"].is_null(), "level 1 has no vth: {m1}");
+    assert!(m1["params"]["gm_gds"].as_f64().unwrap() > 50.0);
+    assert!(
+        within(
+            d["nodes"]["V(d)"].as_f64().unwrap(),
+            vdd - 10e3 * hand_id(10e3),
+            0.01
+        ),
+        "{text}"
+    );
+    // The mirror reference is diode-connected and saturated; the output,
+    // with 100k from 5 V, cannot carry 100 uA and falls into triode.
+    assert_eq!(device(&d, "M2")["region"], "saturation", "{text}");
+    assert_eq!(device(&d, "M3")["region"], "triode", "{text}");
+    let checks = d["checks"].as_array().unwrap();
+    assert!(
+        checks.iter().any(|c| c.as_str().unwrap().starts_with(
+            "M3 shares its gate with diode-connected M2, so it looks like a mirror output, but it is in triode"
+        )),
+        "{checks:?}"
+    );
+    assert!(
+        text.starts_with("Operating point of cs.cir (ngspice .op):"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n  M1 nmos saturation: id=330.8uA"),
+        "{text}"
+    );
+    assert!(text.contains("Check:\n  M3 shares its gate"), "{text}");
+    assert!(!text.contains("unrecognized"), "{text}");
+
+    // A run-only value and one device.
+    let (text, d) = (&results[1].1, data(1));
+    let devices = d["devices"].as_array().unwrap();
+    assert_eq!(devices.len(), 1, "{text}");
+    let id = devices[0]["params"]["id"].as_f64().unwrap();
+    assert!(within(id, hand_id(5e3), 0.01), "id {id}\n{text}");
+    assert!(text.contains("with RD=5k"), "{text}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("cs.cir")).unwrap(),
+        CS_OP
+    );
+
+    // BJT: ic = beta ib with ib = (VCC - vbe) / RB, and gm = ic / VT.
+    let vt = 1.380649e-23 * 300.15 / 1.602176634e-19;
+    let (text, d) = (&results[2].1, data(2));
+    let q1 = device(&d, "Q1");
+    assert_eq!(q1["type"], "npn", "{text}");
+    assert_eq!(q1["region"], "active", "{text}");
+    let p = &q1["params"];
+    let (ic, vbe) = (p["ic"].as_f64().unwrap(), p["vbe"].as_f64().unwrap());
+    assert!(
+        within(ic, 100.0 * (10.0 - vbe) / 1e6, 0.01),
+        "ic {ic}\n{text}"
+    );
+    assert!(within(p["gm"].as_f64().unwrap(), ic / vt, 0.01), "{q1}");
+    assert!(within(p["beta"].as_f64().unwrap(), 100.0, 0.01), "{q1}");
+    assert!(
+        within(p["rpi"].as_f64().unwrap(), 100.0 * vt / ic, 0.02),
+        "{q1}"
+    );
+    assert!(
+        within(p["vce"].as_f64().unwrap(), 10.0 - 4.7e3 * ic, 0.01),
+        "{q1}"
+    );
+    // No vaf in the model: no finite ro, and the reason says so.
+    assert!(p["ro"].is_null(), "{q1}");
+    assert!(
+        q1["notes"][0].as_str().unwrap().contains("no Early effect"),
+        "{q1}"
+    );
+    // Diode at 1 mA: rd = VT / id.
+    let d1 = device(&d, "D1");
+    assert_eq!(d1["type"], "diode");
+    assert!(
+        within(d1["params"]["id"].as_f64().unwrap(), 1e-3, 1e-3),
+        "{d1}"
+    );
+    assert!(
+        within(d1["params"]["rd"].as_f64().unwrap(), vt / 1e-3, 0.01),
+        "{d1}"
+    );
+    // M7 inside X1, typed from the subcircuit's own model.
+    let m7 = device(&d, "X1.M7");
+    assert_eq!(m7["type"], "nmos", "{text}");
+    assert_eq!(m7["region"], "saturation", "{text}");
+    let id7 = m7["params"]["id"].as_f64().unwrap();
+    assert!(within(id7, 0.5 * 100e-6 * 5.0 * 0.5 * 0.5, 0.01), "{m7}");
+    assert!(text.contains("\n  X1.M7 nmos saturation:"), "{text}");
+    assert!(
+        m7["params"]["gm_gds"].is_null() && text.contains("no channel-length modulation"),
+        "{text}"
+    );
+    assert!(d["checks"].as_array().unwrap().is_empty(), "{text}");
+
+    // Every device inside X1, and nothing else.
+    let d = data(3);
+    let names: Vec<&str> = d["devices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["X1.M7"]);
+
+    // A schematic without semiconductors: nodes only.
+    let (text, d) = (&results[5].1, data(5));
+    assert!(text.contains("No MOSFETs, BJTs or diodes"), "{text}");
+    assert!(
+        d["nodes"].as_object().unwrap().contains_key("V(out)"),
+        "{text}"
+    );
+
+    // An unknown device is refused with the real ones.
+    let (text, is_error) = (&results[6].1, results[6].2);
+    assert!(is_error, "{text}");
+    assert!(
+        text.contains("no device matches M99") && text.contains("M1, M2, M3"),
+        "{text}"
+    );
+
+    // BSIM4 reports vth (no von) and everything in the device's own
+    // polarity; only the model card says it is a PMOS. The 2N3904 comes
+    // from aispice's own models.
+    let (text, is_error) = (&results[7].1, results[7].2);
+    assert!(!is_error, "{text}");
+    let d = data(7);
+    let mp1 = device(&d, "MP1");
+    assert_eq!(mp1["type"], "pmos", "{text}");
+    let p = &mp1["params"];
+    assert!(
+        p["von"].is_null() && p["vth"].as_f64().unwrap() > 0.0,
+        "{mp1}"
+    );
+    assert!(
+        p["id"].as_f64().unwrap() > 0.0 && p["vgs"].as_f64().unwrap() > 1.1,
+        "{mp1}"
+    );
+    assert!(p["cgs"].as_f64().unwrap() > 0.0, "{mp1}");
+    // 2k from the drain: vsd is well above vdsat.
+    assert_eq!(mp1["region"], "saturation", "{text}");
+    let vsd = 1.8 - d["nodes"]["V(d)"].as_f64().unwrap();
+    assert!(within(p["vds"].as_f64().unwrap(), vsd, 1e-6), "{mp1}");
+    let q2 = device(&d, "Q2");
+    assert_eq!(q2["type"], "npn", "{text}");
+    assert_eq!(q2["region"], "active", "{text}");
+    assert!(!text.contains("unrecognized"), "{text}");
+}
+
 struct DenyAll;
 
 #[async_trait::async_trait]

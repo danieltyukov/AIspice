@@ -8,6 +8,7 @@ pub mod log;
 pub mod measure;
 pub mod models;
 pub mod montecarlo;
+pub mod oppoint;
 pub mod optimize;
 pub mod plot;
 pub mod polezero;

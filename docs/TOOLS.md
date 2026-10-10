@@ -815,6 +815,51 @@ Pole-zero analysis of a transfer function with ngspice's .pz: the poles and zero
 
 </details>
 
+## `operating_point`
+
+Check bias: the DC operating point with each semiconductor device's small-signal values, for sizing transistors (the gm/Id method). MOSFETs: region (cutoff, subthreshold, triode, saturation), id, vgs, vds, vbs, vth (von for level 1 to 3), vdsat, gm, gds, gmbs, gm/id, intrinsic gain gm/gds, cgs and cgd when the model has them, W and L. BJTs: region (active, saturation, cutoff, reverse active), ic, ib, beta, vbe, vce, gm, rpi, ro. Diodes: id, vd, rd. Also node voltages and source currents. Devices inside subcircuits are named by path, as X1.M7. Points out devices in triode or cutoff that look like they should be saturated, such as a current-mirror output. Values are in each device's own polarity (for a PMOS, vgs is vsg). The circuit's own analyses, .meas, .step and .save lines are left out of this run and the file is not changed. Device values need ngspice; without it only node voltages and source currents come back, from LTspice or Xyce.
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "properties": {
+    "circuit": {
+      "type": "string"
+    },
+    "devices": {
+      "default": [],
+      "description": "Report only these devices: instance names such as `M1`, `X1.M7` for\nM7 inside subcircuit instance X1, or `X1` for every device in it.\nDefault: every MOSFET, BJT and diode.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "A number as JSON or as SPICE text (`2.2k`)."
+      },
+      "description": "Values for this analysis only, without changing the file: an element\n(`R1`) or `.param` name and its value, e.g. `{\"Rbias\": \"47k\"}`.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "circuit"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ## `sweep`
 
 Sweep component values or .param values (several parameters give every combination, at most 200 runs) and tabulate measurements for each. Works with every simulator. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().

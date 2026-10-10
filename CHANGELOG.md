@@ -17,6 +17,7 @@ A rewrite. aispice is now one Rust engine with three front ends: a desktop app, 
 - Typed schematic edits with automatic placement and wire routing, a semantic diff after each edit, and undo through snapshots.
 - Netlist to schematic: `create_schematic` and `aispice draw` lay a SPICE netlist out as a readable LTspice schematic (signal flow left to right, ground down, rails up, feedback above its stage) and refuse any drawing that does not netlist back to the input.
 - `poles_zeros` tool: pole-zero analysis of a transfer function on ngspice's `.pz`, with f0 and Q for each complex pair, the corner of each real root, and a stability verdict.
+- `operating_point` tool: the DC operating point of every MOSFET, BJT and diode on ngspice, subcircuit devices included, with region, gm, gds, gm/Id, intrinsic gain, rpi, ro and beta, and a note on devices out of saturation that look like they should be in it, such as a current-mirror output.
 - Simulation on ngspice, Xyce, LTspice (native or under Wine, headless with `xvfb-run`) and Cadence Spectre over SSH.
 - Measurements (gain, bandwidth, phase and gain margin, overshoot, settling, rise and fall time, RMS and more), spec tables with margins, parameter sweeps, Monte Carlo with yield, and an optimizer.
 - `aispice check` for testing circuits against their specs in CI.
