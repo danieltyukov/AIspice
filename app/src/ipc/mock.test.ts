@@ -92,6 +92,22 @@ describe("mock backend", () => {
     expect(saved.meta.title).toBe("Move the corner to 1 kHz");
   });
 
+  it("sizes with the optimizer and checks yield, all optimized specs passing", async () => {
+    const b = await opened();
+    const session = await b.newSession("rc_lowpass.asc");
+    const events: AgentEvent[] = [];
+    await b.send(session.id, "Optimize R1 and C1, then check the yield", [], "rc_lowpass.asc", (e) => events.push(e));
+    const data = events.flatMap((e) => (e.type === "tool_end" && e.output.data ? [e.output.data] : []));
+    expect(data.map((d) => d.kind)).toEqual(["schematic", "optimize", "montecarlo"]);
+    const opt = data[1];
+    if (opt.kind !== "optimize") throw new Error("no optimize");
+    expect(opt.report?.all_pass).toBe(true);
+    expect(opt.report?.rows.every((r) => r.pass)).toBe(true);
+    const mc = data[2];
+    if (mc.kind !== "montecarlo") throw new Error("no montecarlo");
+    expect(mc.runs).toBe(500);
+  });
+
   it("waits for approval in ask mode and leaves the circuit alone when declined", async () => {
     const b = await opened();
     await b.saveSettings({ ...(await b.settings()), edit_mode: "ask" });
