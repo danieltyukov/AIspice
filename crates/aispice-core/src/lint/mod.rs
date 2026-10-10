@@ -587,12 +587,18 @@ fn subckt_calls(sch: &Schematic, lib: &SymbolLibrary, conn: &Connectivity, out: 
         {
             includes.push(file.to_string());
         }
+        // LTspice finds a part from its own library by searching its
+        // library files, which aispice does not read: leave those alone.
+        let from_ltspice = lib
+            .resolve(&sym.name)
+            .is_ok_and(|(_, s)| s == crate::symbol::SymbolSource::Ltspice);
         if let Some(call) = subckt_call(sym, def) {
             calls.push((
                 p.inst.clone(),
                 sym.at,
                 def.attr("Value").map(str::to_string),
                 call,
+                from_ltspice,
             ));
         }
     }
@@ -620,12 +626,14 @@ fn subckt_calls(sch: &Schematic, lib: &SymbolLibrary, conn: &Connectivity, out: 
             continue;
         }
         match project_library(lib, file) {
+            // A library that includes further files may define anything.
+            Some(n) if n.directives().any(|d| include_target(d).is_some()) => unreadable = true,
             Some(n) => defined.extend(subckt_names(&n)),
             None => unreadable = true,
         }
     }
     let builtin = |n: &str| BUILTIN_SUBCKTS.iter().any(|b| b.eq_ignore_ascii_case(n));
-    for (inst, at, default, call) in calls {
+    for (inst, at, default, call, from_ltspice) in calls {
         let own = default
             .filter(|d| builtin(d))
             .map(|d| format!("`{d}`"))
@@ -638,6 +646,7 @@ fn subckt_calls(sch: &Schematic, lib: &SymbolLibrary, conn: &Connectivity, out: 
             ),
             Some(n) => {
                 if unreadable
+                    || from_ltspice
                     || defined.contains(&n.to_ascii_uppercase())
                     || builtin(n)
                     || ltspice_provides(lib, n)
@@ -822,6 +831,32 @@ mod tests {
         };
         assert!(unknown_subckt(&src("myamp"), &lib).is_empty());
         assert_eq!(unknown_subckt(&src("youramp"), &lib).len(), 1);
+        // A library that includes another file may define anything.
+        std::fs::write(
+            dir.join("amps.lib"),
+            "* amps\n.include more.lib\n.subckt myamp a b c\n.ends myamp\n",
+        )
+        .unwrap();
+        assert!(unknown_subckt(&src("youramp"), &lib).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// LTspice finds a vendor part's subcircuit by searching its library
+    /// files, which aispice does not read; a part from that library is not
+    /// flagged.
+    #[test]
+    fn ltspice_parts_are_not_second_guessed() {
+        let dir = std::env::temp_dir().join(format!("aispice-lint-lt-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sym")).unwrap();
+        std::fs::write(
+            dir.join("sym/vendorop.asy"),
+            "Version 4\nSymbolType CELL\nSYMATTR Value VENDOR1\nSYMATTR Prefix X\nPIN -32 48 NONE 8\nPINATTR PinName In-\nPINATTR SpiceOrder 1\nPIN -32 80 NONE 8\nPINATTR PinName In+\nPINATTR SpiceOrder 2\nPIN 32 64 NONE 8\nPINATTR PinName OUT\nPINATTR SpiceOrder 3\n",
+        )
+        .unwrap();
+        let lib = SymbolLibrary::builtin_only()
+            .with_dir(&dir.join("sym"), crate::symbol::SymbolSource::Ltspice);
+        let src = OPAMP.replace("SYMBOL OpAmps/opamp", "SYMBOL vendorop");
+        assert!(unknown_subckt(&src, &lib).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 

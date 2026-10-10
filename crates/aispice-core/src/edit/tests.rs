@@ -311,6 +311,31 @@ fn naming_a_labelled_net_renames_instead_of_stacking() {
     );
 }
 
+/// Naming a net renames it for every pin on it; directives that still use
+/// the old name are pointed out, since they would silently measure nothing.
+#[test]
+fn renaming_a_net_points_out_directives_that_use_the_old_name() {
+    let src = "Version 4\nSHEET 1 880 680\nWIRE 16 96 16 128\nFLAG 16 128 n7\nFLAG 400 400 n7\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 384 304 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\nTEXT 0 500 Left 2 !.meas op v7 find V(n7)\n";
+    let (mut sch, _) = parse(src);
+    let report = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "R1.B", "net": "mid"}]"#),
+    )
+    .unwrap();
+    assert!(
+        report.applied[0].contains("also on that net: R2.B"),
+        "{report:?}"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("V(n7)") && w.contains("replace_directive")),
+        "{report:?}"
+    );
+}
+
 #[test]
 fn explicit_positions_snap_and_avoid_overlaps() {
     let mut sch = Schematic::new();

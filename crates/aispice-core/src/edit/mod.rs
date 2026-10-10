@@ -929,10 +929,39 @@ fn connect_to_net(
                 f.label = label.clone();
             }
         }
-        report.applied.push(format!(
-            "Named the net of {pin} `{label}` (was {})",
-            old.join(", ")
-        ));
+        let others: Vec<String> = current
+            .pins
+            .iter()
+            .filter(|q| {
+                !(q.inst.eq_ignore_ascii_case(&p.inst) && q.pin.eq_ignore_ascii_case(&p.pin))
+            })
+            .map(|q| format!("{}.{}", q.inst, q.pin))
+            .collect();
+        report.applied.push(if others.is_empty() {
+            format!("Named the net of {pin} `{label}` (was {})", old.join(", "))
+        } else {
+            format!(
+                "Named the net of {pin} `{label}` (was {}); also on that net: {}",
+                old.join(", "),
+                others.join(", ")
+            )
+        });
+        // Directives that measure or save the old name now point nowhere.
+        let stale: Vec<String> = sch
+            .directives()
+            .flat_map(|t| t.lines())
+            .filter(|l| {
+                l.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+                    .any(|w| old.iter().any(|o| o.eq_ignore_ascii_case(w)))
+            })
+            .collect();
+        if !stale.is_empty() {
+            report.warnings.push(format!(
+                "these directives still name the old net {}: {}; update them with replace_directive",
+                old.join(", "),
+                stale.join(" | ")
+            ));
+        }
         return Ok(());
     }
     // The pin is on another named net. Attaching it would join that net to
