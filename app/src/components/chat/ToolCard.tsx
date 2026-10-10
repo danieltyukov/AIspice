@@ -201,7 +201,7 @@ function DataDetails({ data }: { data: ToolData }) {
               </div>
             ))}
           </dl>
-          <SpecTable report={data.report} compact />
+          {data.report ? <SpecTable report={data.report} compact /> : null}
         </div>
       );
     case "montecarlo":

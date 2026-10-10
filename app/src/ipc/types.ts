@@ -239,7 +239,7 @@ export type ToolData =
   | { kind: "lint"; findings: Finding[] }
   | { kind: "schematic"; circuit: string; summary: SchematicSummary }
   | { kind: "plot"; svg: string }
-  | { kind: "optimize"; best: Record<string, string>; evaluations: number; report: SpecReport }
+  | { kind: "optimize"; best: Record<string, string>; evaluations: number; report: SpecReport | null }
   | { kind: "montecarlo"; runs: number; yield_pct: number; report: string }
   | { kind: "poles_zeros"; poles: PzRoot[]; zeros: PzRoot[]; stable: boolean }
   | { kind: "generic"; value: unknown };
