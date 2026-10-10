@@ -382,7 +382,7 @@ impl Runner {
     ) -> (String, Option<String>) {
         let target = id.target();
         let source = if target == Target::Ltspice {
-            netlist.clone()
+            single_analysis(netlist, "LTspice", notes)
         } else {
             let resolved = models::resolve_with(netlist, std_libs, lib_dirs);
             for a in &resolved.added {
@@ -395,7 +395,11 @@ impl Runner {
                 ));
             }
             notes.extend(resolved.notes);
-            resolved.netlist
+            if target == Target::Xyce {
+                single_analysis(&resolved.netlist, "Xyce", notes)
+            } else {
+                resolved.netlist
+            }
         };
         let t = dialect::translate(&source, target);
         notes.extend(t.notes.iter().cloned());
@@ -502,9 +506,73 @@ pub fn absolutize_includes(deck: &str, base: &Path) -> String {
     out
 }
 
+/// LTspice and Xyce run one analysis per simulation: LTspice fails at a
+/// second one ("Previous analysis already found") and Xyce runs only one of
+/// them. Keep the first and say which were left out; ngspice runs them all.
+fn single_analysis(netlist: &Netlist, simulator: &str, notes: &mut Vec<String>) -> Netlist {
+    let mut out = netlist.clone();
+    let mut seen = false;
+    let mut skipped = Vec::new();
+    out.items.retain(|item| match item {
+        aispice_core::netlist::Line::Directive { text }
+            if aispice_core::netlist::spice::is_analysis(text) =>
+        {
+            if seen {
+                skipped.push(text.trim().to_string());
+                false
+            } else {
+                seen = true;
+                true
+            }
+        }
+        _ => true,
+    });
+    if !skipped.is_empty() {
+        notes.push(format!(
+            "{simulator} runs one analysis per simulation; left out {}",
+            skipped.join(", ")
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Was a bug found on a live Spectre run: the policy refused a line the
+    /// Spectre translation itself adds. Every simulator's translated deck of
+    /// an ordinary circuit must pass the policy unchanged.
+    #[test]
+    fn ltspice_gets_one_analysis() {
+        let netlist =
+            aispice_core::netlist::parse("* x\nR1 a 0 1k\n.tran 1m\n.ac dec 10 1 1k\n.op\n");
+        let mut notes = Vec::new();
+        let one = single_analysis(&netlist, "LTspice", &mut notes);
+        let text = aispice_core::netlist::write(&one);
+        assert!(text.contains(".tran 1m") && !text.contains(".ac") && !text.contains(".op"));
+        assert!(notes[0].contains(".ac dec 10 1 1k, .op"), "{notes:?}");
+    }
+
+    #[test]
+    fn translated_decks_pass_the_policy() {
+        let netlist = aispice_core::netlist::parse(
+            "* rc\nV1 in 0 SINE(0 1 1k) AC 1\nR1 in out 1k\nC1 out 0 100n\n.ac dec 20 10 100k\n.tran 2m\n",
+        );
+        let runner = Runner::default();
+        let policy = Policy {
+            base_dir: std::env::temp_dir(),
+            allowed_dirs: Vec::new(),
+            allow_control_blocks: false,
+        };
+        for id in SimId::ALL {
+            let mut notes = Vec::new();
+            let (deck, unsupported) = runner.deck_for(id, &netlist, &[], &[], &mut notes);
+            assert!(unsupported.is_none(), "{id:?}: {unsupported:?}");
+            let violations = netlist::check_policy(&deck, &policy);
+            assert!(violations.is_empty(), "{id:?}: {violations:?}\n{deck}");
+        }
+    }
 
     #[test]
     fn includes_beside_the_circuit_become_absolute() {

@@ -188,7 +188,12 @@ fn check_inner(
         if in_control {
             continue;
         }
-        if FOREIGN.contains(&first) {
+        // `simulator lang=spice` keeps a Spectre deck in SPICE syntax, where
+        // this allowlist applies; aispice's Spectre translation starts every
+        // deck with it. Switching to any other language stays refused.
+        let stays_spice = first == "simulator"
+            && lower.split_whitespace().collect::<Vec<_>>() == ["simulator", "lang=spice"];
+        if FOREIGN.contains(&first) && !stays_spice {
             out.push(Violation { line: line.clone(), reason: format!("`{first}` belongs to another simulator's language and can load code or run programs; it is not allowed in a SPICE deck") });
             continue;
         }
@@ -613,6 +618,21 @@ mod tests {
             ".meas TRAN r PARAM V(a)/..",
             ".inc x)/etc",
             "R1 a b R=V(a)/C:x",
+        ] {
+            assert!(!check_lexical(bad).is_empty(), "{bad} was allowed");
+        }
+    }
+
+    /// Was a bug found on a live Spectre run: the policy refused the
+    /// `simulator lang=spice` line aispice's own Spectre translation adds.
+    #[test]
+    fn simulator_lang_spice_is_allowed_and_other_languages_are_not() {
+        assert!(check_lexical("simulator lang=spice\nR1 a 0 1k").is_empty());
+        assert!(check_lexical("SIMULATOR  LANG=SPICE").is_empty());
+        for bad in [
+            "simulator lang=spectre",
+            "simulator lang=spice insensitive=no lang=spectre",
+            "simulator",
         ] {
             assert!(!check_lexical(bad).is_empty(), "{bad} was allowed");
         }
