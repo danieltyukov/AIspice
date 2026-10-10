@@ -1,5 +1,7 @@
 //! SPICE netlists: reading and writing them, and deriving one from a schematic.
 
+pub mod build;
+pub mod compare;
 pub mod connect;
 pub mod spice;
 
