@@ -10,7 +10,7 @@
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -25,6 +25,7 @@ if (!existsSync(binary)) throw new Error(`build the app first: npx tauri build -
 const root = mkdtempSync(join(tmpdir(), "aispice-e2e-"));
 const project = join(root, "filters");
 const config = join(root, "config");
+const data = join(root, "data");
 mkdirSync(project);
 mkdirSync(join(config, "aispice"), { recursive: true });
 writeFileSync(
@@ -95,7 +96,7 @@ writeFileSync(join(config, "aispice", "app.json"), JSON.stringify({ recent_proje
 
 // tauri-driver, which starts the app through WebKitWebDriver.
 const driverBin = existsSync(join(homedir(), ".cargo/bin/tauri-driver")) ? join(homedir(), ".cargo/bin/tauri-driver") : "tauri-driver";
-const driver = spawn(driverBin, ["--port", "4444"], { stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, XDG_CONFIG_HOME: config } });
+const driver = spawn(driverBin, ["--port", "4444"], { stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, XDG_CONFIG_HOME: config, XDG_DATA_HOME: data } });
 const W = "http://127.0.0.1:4444";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function wd(method, path, body) {
@@ -223,8 +224,12 @@ try {
     await shot("6-undone");
   });
   await step("the conversation is saved as a session", async () => {
-    const sessions = existsSync(join(project, ".aispice/sessions"));
-    if (!sessions) throw new Error("no sessions folder");
+    // In the user's data directory, never inside the project, where a cloned
+    // repository could plant a forged conversation.
+    if (existsSync(join(project, ".aispice/sessions"))) throw new Error("sessions written into the project");
+    const dirs = existsSync(join(data, "aispice/sessions")) ? readdirSync(join(data, "aispice/sessions")) : [];
+    const files = dirs.flatMap((d) => readdirSync(join(data, "aispice/sessions", d)));
+    if (!files.some((f) => f.endsWith(".json"))) throw new Error("no saved session");
   });
   await step("the model received our tools and the system prompt", async () => {
     const first = requests[0];

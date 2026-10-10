@@ -34,3 +34,6 @@ notify = "8.2.0"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
