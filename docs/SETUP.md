@@ -82,6 +82,8 @@ SSH runs with `BatchMode=yes`, so the host must accept your SSH key without a pa
 
 These settings come only from your config file. A model or a netlist can never change the host or the command. Keep process design kits and anything under an NDA out of your project folders if you share them.
 
+Spectre 19 and older do not run `.meas` statements in SPICE syntax. aispice's own measurements, spec checks, sweeps and the optimizer work on Spectre's waveforms the same as on any other simulator, so use those. Tested with Spectre 19.1 on a remote CentOS 7 server, through an SSH jump host configured in `~/.ssh/config`.
+
 ## Model providers
 
 aispice works with Anthropic, OpenAI, Google Gemini, OpenRouter, Ollama, and any OpenAI-compatible endpoint (LM Studio, vLLM, a company gateway).

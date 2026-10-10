@@ -36,6 +36,7 @@ Other test suites:
 | `npx playwright test` (in `app/`) | The interface in a browser against the mock backend, plus screenshots |
 | `npm run test:desktop -w app` | The built desktop app over WebDriver. Build first with `npx tauri build --debug --no-bundle` in `app/`, and run under `xvfb-run -a` on a machine without a display |
 | `AISPICE_LTSPICE_TESTS=1 cargo test -p aispice-sim` | Netlists compared live against LTspice, when it is installed |
+| `AISPICE_SPECTRE_HOST=... AISPICE_SPECTRE_DIR=... cargo test -p aispice-sim --test dialect_sims` | The same decks on a remote Spectre, compared with ngspice. `AISPICE_SPECTRE_SETUP` sets a command that puts Spectre on the path |
 
 ## Writing changes
 
