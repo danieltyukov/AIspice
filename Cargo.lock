@@ -80,6 +80,7 @@ dependencies = [
  "aispice-tools",
  "async-trait",
  "dirs 6.0.0",
+ "glib",
  "notify",
  "serde",
  "serde_json",

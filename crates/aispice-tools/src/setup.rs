@@ -40,6 +40,7 @@ pub fn runner_config(cfg: &Config) -> RunnerConfig {
         simulator: cfg.simulator.clone(),
         ltspice_exe: cfg.ltspice_path.clone(),
         spectre,
+        embedded_models_only: cfg.embedded_models_only,
         ..RunnerConfig::default()
     }
 }

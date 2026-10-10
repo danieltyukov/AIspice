@@ -23,7 +23,7 @@ export function PartPopover({ part, x, y, bounds, highlight, onClose }: PartPopo
   const height = ref.current?.offsetHeight ?? 180;
   const left = Math.max(8, Math.min(x, bounds.width - WIDTH - 8));
   const top = Math.max(8, Math.min(y, bounds.height - height - 8));
-  const attrs = Object.entries(part.attrs ?? {});
+  const attrs = [...Object.entries(part.params ?? {}), ...Object.entries(part.attrs ?? {})];
 
   return (
     <div

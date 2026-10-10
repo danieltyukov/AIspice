@@ -7,8 +7,8 @@
 
 use super::connect::{Connectivity, connect};
 use super::spice::{Element, Line, Netlist};
-use crate::schematic::{Item, Schematic, TextKind};
-use crate::symbol::{SymbolLibrary, SymbolType};
+use crate::schematic::{Item, Schematic, Symbol, TextKind};
+use crate::symbol::{SymbolDef, SymbolLibrary, SymbolType};
 use serde::{Deserialize, Serialize};
 
 /// Generic model names LTspice defines on the fly, and the standard library
@@ -36,7 +36,7 @@ pub struct Built {
 }
 
 /// Whether a SpiceModel value names a library file rather than a model.
-fn is_library_file(v: &str) -> bool {
+pub fn is_library_file(v: &str) -> bool {
     let ext = v
         .rsplit_once('.')
         .map(|(_, e)| e.to_ascii_lowercase())
@@ -60,6 +60,91 @@ fn is_library_file(v: &str) -> bool {
             | "jft"
             | "cmp"
     )
+}
+
+/// An attribute as the netlister reads it: the instance's own, else the
+/// symbol's default, with any `;` comment cut off. `""` in a file means
+/// deliberately empty and reads as absent.
+pub fn effective_attr<'a>(sym: &'a Symbol, def: &'a SymbolDef, key: &str) -> Option<&'a str> {
+    sym.attr(key)
+        .or_else(|| def.attr(key))
+        .map(|v| v.split(';').next().unwrap_or("").trim())
+        .filter(|v| !v.is_empty() && *v != "\"\"")
+}
+
+/// The prefix a placed part netlists with: its own Prefix attribute, else
+/// its symbol's.
+pub fn part_prefix<'a>(sym: &'a Symbol, def: &'a SymbolDef) -> &'a str {
+    sym.attr("Prefix")
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != "\"\"")
+        .unwrap_or_else(|| def.prefix())
+}
+
+/// Whether a placed part netlists as a hierarchical block (a BLOCK symbol
+/// with no value or model of its own).
+pub fn is_plain_block(sym: &Symbol, def: &SymbolDef) -> bool {
+    def.kind == SymbolType::Block
+        && sym.attr("Value").or_else(|| def.attr("Value")).is_none()
+        && sym
+            .attr("SpiceModel")
+            .or_else(|| def.attr("SpiceModel"))
+            .is_none()
+}
+
+/// What a part that calls a subcircuit (device letter X) puts on its
+/// instance line after the nodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubcktCall {
+    /// The first word, which SPICE takes as the subcircuit name; `None` when
+    /// the line has nothing after the nodes.
+    pub name: Option<String>,
+    /// The attribute that word comes from: Value, Value2, SpiceModel,
+    /// SpiceLine or SpiceLine2.
+    pub from: &'static str,
+    /// SpiceLine and SpiceLine2 as written to the netlist.
+    pub params: Vec<(&'static str, String)>,
+}
+
+/// The subcircuit call of a placed part, or `None` when the part is not a
+/// subcircuit (or is a hierarchical block, which netlists differently).
+/// Follows the same attribute order as [`build`].
+pub fn subckt_call(sym: &Symbol, def: &SymbolDef) -> Option<SubcktCall> {
+    let letter = part_prefix(sym, def)
+        .chars()
+        .next()
+        .unwrap_or('X')
+        .to_ascii_uppercase();
+    if letter != 'X' || is_plain_block(sym, def) {
+        return None;
+    }
+    let spice_model = effective_attr(sym, def, "SpiceModel");
+    let model_is_file = spice_model.is_some_and(is_library_file);
+    let value = effective_attr(sym, def, "Value");
+    let value2 = effective_attr(sym, def, "Value2");
+    let mut words: Vec<(&'static str, &str)> = Vec::new();
+    if let Some(m) = spice_model.filter(|_| !model_is_file) {
+        words.push(("SpiceModel", m));
+    }
+    if model_is_file && value2.is_some() {
+        words.extend(value2.map(|v| ("Value2", v)));
+    } else {
+        words.extend(value.map(|v| ("Value", v)));
+        words.extend(value2.map(|v| ("Value2", v)));
+    }
+    let params: Vec<(&'static str, String)> = ["SpiceLine", "SpiceLine2"]
+        .into_iter()
+        .filter_map(|k| effective_attr(sym, def, k).map(|v| (k, v.to_string())))
+        .collect();
+    words.extend(params.iter().map(|(k, v)| (*k, v.as_str())));
+    let first = words
+        .iter()
+        .find_map(|(k, v)| v.split_whitespace().next().map(|w| (*k, w.to_string())));
+    Some(SubcktCall {
+        name: first.as_ref().map(|(_, w)| w.clone()),
+        from: first.map(|(k, _)| k).unwrap_or("Value"),
+        params,
+    })
 }
 
 /// The netlist instance name for a symbol: the prefix's device letter plus the
@@ -185,13 +270,7 @@ fn build_at_depth(
         if super::connect::is_jumper(&sym.name) {
             continue;
         }
-        let plain_block = def.kind == SymbolType::Block
-            && sym.attr("Value").or_else(|| def.attr("Value")).is_none()
-            && sym
-                .attr("SpiceModel")
-                .or_else(|| def.attr("SpiceModel"))
-                .is_none();
-        if plain_block {
+        if is_plain_block(sym, def) {
             match hierarchical_child(lib, &sym.name) {
                 Some((child_name, child)) if depth < MAX_HIERARCHY => {
                     let pins = conn
@@ -248,12 +327,7 @@ fn build_at_depth(
             }
             continue;
         }
-        let prefix = sym
-            .attr("Prefix")
-            .map(str::trim)
-            .filter(|p| !p.is_empty() && *p != "\"\"")
-            .unwrap_or_else(|| def.prefix())
-            .to_string();
+        let prefix = part_prefix(sym, def).to_string();
         let letter = prefix.chars().next().unwrap_or('X').to_ascii_uppercase();
         let name = instance_name(&prefix, &p.inst);
         let pins = conn
@@ -320,14 +394,8 @@ fn build_at_depth(
         if (up == "MN" || up == "MP") && nodes.len() == 3 {
             nodes.push(nodes[2].clone());
         }
-        // `""` in a file means deliberately empty.
         // `""` in a file means deliberately empty, and `;` starts a comment.
-        let field = |key: &str| {
-            sym.attr(key)
-                .or_else(|| def.attr(key))
-                .map(|v| v.split(';').next().unwrap_or("").trim())
-                .filter(|v| !v.is_empty() && *v != "\"\"")
-        };
+        let field = |key: &str| effective_attr(sym, def, key);
         let mut parts: Vec<&str> = Vec::new();
         // SpiceModel is either a library file (it has a library extension and
         // becomes a `.lib` line) or a model name, which LTspice writes first

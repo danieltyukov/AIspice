@@ -151,6 +151,9 @@ pub async fn judge(
             let ws = Workspace::new();
             ws.runner.set_config(RunnerConfig {
                 simulator: simulator.to_string(),
+                // aispice's own models only, so results compare across
+                // machines whatever LTspice library is installed.
+                embedded_models_only: true,
                 ..RunnerConfig::default()
             });
             ws.set_project(project);
