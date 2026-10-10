@@ -75,7 +75,7 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test
+        run: cargo test --no-fail-fast
 
   shell:
     name: Desktop shell
@@ -125,8 +125,22 @@ jobs:
         working-directory: app
         run: npx tauri build --debug --no-bundle
 
+      # WebKitGTK's GPU paths draw nothing on Xvfb, so the webview renders in
+      # software here.
       - name: Desktop end-to-end
         run: xvfb-run -a npm run test:desktop -w app
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+
+      - name: Keep the end-to-end screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-e2e
+          path: app/e2e-desktop/output/
+          if-no-files-found: ignore
 
       - name: Upload screenshots on failure
         if: failure()

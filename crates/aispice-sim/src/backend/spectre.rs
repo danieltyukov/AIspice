@@ -391,7 +391,11 @@ mod tests {
                 "-o",
                 "BatchMode=yes",
                 "--",
-                "/tmp/run/rc_low-pass.scs",
+                // The local side uses the platform's separator.
+                &Path::new("/tmp/run")
+                    .join("rc_low-pass.scs")
+                    .display()
+                    .to_string(),
                 &format!("me@eda.example.edu:{dir}/rc_low-pass.scs"),
             ]
         );
