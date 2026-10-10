@@ -1,0 +1,11 @@
+Full-wave bridge rectifier
+V1 ac1 ac2 SINE(0 12 50)
+D1 ac1 out 1N4007
+D2 ac2 out 1N4007
+D3 0 ac1 1N4007
+D4 0 ac2 1N4007
+C1 out 0 470u
+RL out 0 470
+.model 1N4007 D(Is=7.02767n Rs=0.0341512 N=1.80803 Cjo=10p M=0.3 tt=4.32u BV=1000)
+.tran 0 100m 0 20u
+.end

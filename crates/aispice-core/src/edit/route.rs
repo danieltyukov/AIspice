@@ -1,14 +1,22 @@
-//! Joining two pins with wires, safely.
+//! Joining two pins with wires, safely and tidily.
 //!
-//! Candidate routes are tried from tidiest to most robust: a straight wire,
-//! the two L-shapes, routes that step out from the pins first, and finally a
-//! pair of net labels. Every candidate is checked by recomputing connectivity:
-//! it must join the two nets and nothing else. A route that would touch a
-//! third net, even at a single point, is rejected, so the router can never
-//! create a short.
+//! Candidate routes come from two places: a fixed menu of tidy shapes (a
+//! straight wire, the two L-shapes, routes that step out from the pins first,
+//! routes through the channel between parts) and a maze search on the 16-unit
+//! grid. Every candidate is checked against LTspice's connection rules on that
+//! grid: it may not run through a part body or within a clearance margin of
+//! one (except straight out along its own pin's lead), nor touch another net.
+//! The legal candidates are scored on length, corners, crossings and how close
+//! they pass to parts and text, and the best few are tried in order of score.
+//! Each is then checked by recomputing connectivity: it must join the two nets
+//! and nothing else, so the router can never create a short even if the grid
+//! model were wrong. When no wire route passes, a pair of net labels joins
+//! the pins instead.
 
 use super::pins::{PinLoc, bodies};
-use crate::geometry::{GRID, Point, Rect};
+use crate::geometry::{GRID, Point, Rect, SegmentIndex};
+use crate::layout::maze::{CLEARANCE, Grid, Start};
+use crate::layout::{Dir, core_body, flag_box, pin_facing, place_rect, symbol_texts};
 use crate::netlist::{Connectivity, connect};
 use crate::schematic::{Flag, Item, Schematic, Wire};
 use crate::symbol::SymbolLibrary;
@@ -63,13 +71,6 @@ pub(crate) fn only_joins(
         .all(|g| g.len() == 1 || g.iter().all(|n| allowed.contains(n)))
 }
 
-fn segment_crosses(a: Point, b: Point, r: &Rect) -> bool {
-    // Axis-aligned segment against a rectangle's open interior.
-    let (x0, x1) = (a.x.min(b.x), a.x.max(b.x));
-    let (y0, y1) = (a.y.min(b.y), a.y.max(b.y));
-    x1 > r.min.x && x0 < r.max.x && y1 > r.min.y && y0 < r.max.y
-}
-
 fn path_wires(points: &[Point]) -> Vec<Wire> {
     points
         .windows(2)
@@ -78,9 +79,28 @@ fn path_wires(points: &[Point]) -> Vec<Wire> {
         .collect()
 }
 
-/// Wire routes between two pins, tidiest first.
-fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
-    let (p, q) = (a.at, b.at);
+/// The way a pin really faces: along its lead, from the symbol drawing.
+/// [`PinLoc::out`] guesses from the body centre, which is wrong for pins set
+/// off-centre on their side (a MOSFET gate).
+fn facing(sch: &Schematic, lib: &SymbolLibrary, p: &PinLoc) -> Dir {
+    let guess = Dir::from_vec(p.out.0, p.out.1).unwrap_or(Dir::Up);
+    let Some(sym) = sch.symbol(&p.inst) else {
+        return guess;
+    };
+    let Ok((def, _)) = lib.resolve(&sym.name) else {
+        return guess;
+    };
+    def.pin(&p.pin)
+        .map(|pd| pin_facing(&def, pd, sym.orient))
+        .unwrap_or(guess)
+}
+
+/// Wire routes between two pins, tidiest first, each leaving `a` along `fa`
+/// and arriving at `b` along `fb`.
+fn candidates(a: Point, fa: Dir, b: Point, fb: Dir) -> Vec<Vec<Point>> {
+    let (p, q) = (a, b);
+    let (ax, ay) = fa.vec();
+    let (bx, by) = fb.vec();
     let mut out = Vec::new();
     if p.x == q.x || p.y == q.y {
         out.push(vec![p, q]);
@@ -89,9 +109,9 @@ fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
     out.push(vec![p, Point::new(p.x, q.y), q]);
     let mid_x = crate::geometry::snap((p.x + q.x) / 2);
     let mid_y = crate::geometry::snap((p.y + q.y) / 2);
-    for k in [2, 3, 4, 6] {
-        let pa = p.offset(a.out.0 * GRID * k, a.out.1 * GRID * k);
-        let qb = q.offset(b.out.0 * GRID * k, b.out.1 * GRID * k);
+    for k in [1, 2, 3, 4, 6] {
+        let pa = p.offset(ax * GRID * k, ay * GRID * k);
+        let qb = q.offset(bx * GRID * k, by * GRID * k);
         out.push(vec![p, pa, Point::new(q.x, pa.y), q]);
         out.push(vec![p, pa, Point::new(pa.x, q.y), q]);
         out.push(vec![p, pa, Point::new(qb.x, pa.y), qb, q]);
@@ -117,10 +137,17 @@ fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
         ]);
     }
     // Wider detours for crowded sheets.
-    for k in [3, 6] {
-        let pa = p.offset(a.out.0 * GRID * k, a.out.1 * GRID * k);
-        let qb = q.offset(b.out.0 * GRID * k, b.out.1 * GRID * k);
-        for off in [GRID * 2, -GRID * 2, GRID * 4, -GRID * 4] {
+    for k in [2, 3, 6] {
+        let pa = p.offset(ax * GRID * k, ay * GRID * k);
+        let qb = q.offset(bx * GRID * k, by * GRID * k);
+        for off in [
+            GRID * 2,
+            -GRID * 2,
+            GRID * 4,
+            -GRID * 4,
+            GRID * 6,
+            -GRID * 6,
+        ] {
             out.push(vec![
                 p,
                 pa,
@@ -139,13 +166,10 @@ fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
             ]);
         }
     }
-    // Drop zero-length steps and duplicate routes.
+    // Drop zero-length steps, reversals and duplicate routes.
     let mut seen = Vec::new();
     out.into_iter()
-        .map(|mut path| {
-            path.dedup();
-            path
-        })
+        .map(|path| crate::layout::maze::corners(&path))
         .filter(|path| {
             if seen.contains(path) {
                 false
@@ -155,6 +179,236 @@ fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
             }
         })
         .collect()
+}
+
+/// Which of the points that carry connections belong to the two nets being
+/// joined, following LTspice's rules the way [`connect`] does: wire ends join,
+/// anything on a wire joins it, flags with one label join.
+struct Membership {
+    root_of: HashMap<Point, usize>,
+    parent: Vec<usize>,
+}
+
+impl Membership {
+    fn new(sch: &Schematic, pins: &[Point]) -> Self {
+        let mut m = Membership {
+            root_of: HashMap::new(),
+            parent: Vec::new(),
+        };
+        let wires: Vec<Wire> = sch.wires().copied().collect();
+        for w in &wires {
+            let (a, b) = (m.id(w.a), m.id(w.b));
+            m.union(a, b);
+        }
+        for p in pins {
+            m.id(*p);
+        }
+        let flags: Vec<(Point, String)> = sch
+            .flags()
+            .map(|f| (f.at, f.label.to_ascii_uppercase()))
+            .collect();
+        for (p, _) in &flags {
+            m.id(*p);
+        }
+        let segs: Vec<(Point, Point)> = wires.iter().map(|w| (w.a, w.b)).collect();
+        let (index, _) = SegmentIndex::new(&segs);
+        let points: Vec<Point> = m.root_of.keys().copied().collect();
+        for p in points {
+            let cover = index.cover(p);
+            let id = m.id(p);
+            for wi in cover
+                .horizontal
+                .map(|s| s.wire)
+                .into_iter()
+                .chain(cover.vertical.map(|s| s.wire))
+                .chain(cover.diagonal)
+            {
+                let other = m.id(wires[wi].a);
+                m.union(id, other);
+            }
+        }
+        let mut by_label: HashMap<String, usize> = HashMap::new();
+        for (p, label) in &flags {
+            let id = m.id(*p);
+            match by_label.get(label) {
+                Some(&o) => m.union(id, o),
+                None => {
+                    by_label.insert(label.clone(), id);
+                }
+            }
+        }
+        m
+    }
+
+    fn id(&mut self, p: Point) -> usize {
+        if let Some(&i) = self.root_of.get(&p) {
+            return i;
+        }
+        let i = self.parent.len();
+        self.parent.push(i);
+        self.root_of.insert(p, i);
+        i
+    }
+
+    fn find(&mut self, mut x: usize) -> usize {
+        while self.parent[x] != x {
+            self.parent[x] = self.parent[self.parent[x]];
+            x = self.parent[x];
+        }
+        x
+    }
+
+    fn union(&mut self, a: usize, b: usize) {
+        let (ra, rb) = (self.find(a), self.find(b));
+        if ra != rb {
+            self.parent[ra.max(rb)] = ra.min(rb);
+        }
+    }
+
+    fn root(&mut self, p: Point) -> Option<usize> {
+        let i = *self.root_of.get(&p)?;
+        Some(self.find(i))
+    }
+}
+
+/// Grid ids for the router: the two nets being joined, and everything else.
+const NET_A: u32 = 0;
+const NET_B: u32 = 1;
+const FOREIGN: u32 = 2;
+
+/// The sheet as the router sees it, for one connection.
+struct Scene {
+    grid: Grid,
+    /// Points of net B a route may end on.
+    goals_b: Vec<Point>,
+}
+
+impl Scene {
+    fn new(sch: &Schematic, lib: &SymbolLibrary, a: &PinLoc, b: &PinLoc) -> Scene {
+        // Every placed pin, with its facing.
+        let mut pins: Vec<(Point, Dir)> = Vec::new();
+        let mut keepouts = Vec::new();
+        let mut texts = Vec::new();
+        let mut area = Rect::from_points(a.at, b.at);
+        let drawn: Vec<String> = bodies(sch, lib)
+            .into_iter()
+            .map(|(n, _)| n.to_ascii_uppercase())
+            .collect();
+        for s in sch.symbols() {
+            let Ok((def, _)) = lib.resolve(&s.name) else {
+                continue;
+            };
+            for p in &def.pins {
+                pins.push((
+                    def.pin_position(p, s.at, s.orient),
+                    pin_facing(&def, p, s.orient),
+                ));
+            }
+            let named = s
+                .inst_name()
+                .is_some_and(|n| drawn.contains(&n.to_ascii_uppercase()));
+            if named && let Some(core) = core_body(&def) {
+                let body = place_rect(core, s.at, s.orient);
+                keepouts.push(body);
+                area = area.union(body);
+            }
+            texts.extend(symbol_texts(s, &def));
+        }
+        for w in sch.wires() {
+            area.include(w.a);
+            area.include(w.b);
+        }
+        for f in sch.flags() {
+            area.include(f.at);
+        }
+        let mut grid = Grid::new(area.inflate(12 * GRID));
+        for k in &keepouts {
+            grid.add_keepout(k.inflate(CLEARANCE));
+            grid.add_cost(k.inflate(CLEARANCE + 16), 3);
+        }
+        for t in &texts {
+            grid.add_cost(t.inflate(2), 30);
+        }
+        let pin_points: Vec<Point> = pins.iter().map(|(p, _)| *p).collect();
+        let mut m = Membership::new(sch, &pin_points);
+        let (ra, rb) = (m.root(a.at), m.root(b.at));
+        let mut id_of = |p: Point| -> u32 {
+            let r = m.root(p);
+            if r.is_some() && r == ra {
+                NET_A
+            } else if r.is_some() && r == rb {
+                NET_B
+            } else {
+                FOREIGN
+            }
+        };
+        let mut goals_b = Vec::new();
+        let wires: Vec<Wire> = sch.wires().copied().collect();
+        for w in &wires {
+            let id = id_of(w.a);
+            grid.add_wire(w.a, w.b, id);
+            if id == NET_B
+                && let Some(d) = Dir::from_vec(w.b.x - w.a.x, w.b.y - w.a.y)
+            {
+                let mut p = w.a;
+                goals_b.push(p);
+                while p != w.b {
+                    p = d.step(p, GRID);
+                    goals_b.push(p);
+                }
+            }
+        }
+        let wire_list: Vec<Wire> = wires.clone();
+        let owners: Vec<(Point, Point)> = Vec::new();
+        for f in sch.flags() {
+            let id = id_of(f.at);
+            grid.add_flag(f.at, id);
+            let r = flag_box(f, &wire_list, &owners);
+            if f.is_ground() {
+                grid.add_keepout(Rect::from_points(f.at.offset(-24, 2), f.at.offset(24, 28)));
+            } else {
+                grid.add_cost(r.inflate(2), 12);
+            }
+            if id == NET_B {
+                goals_b.push(f.at);
+            }
+        }
+        // Pins last, so their leads open corridors through the keep-outs.
+        for (p, f) in &pins {
+            let id = id_of(*p);
+            grid.add_pin(*p, *f, id);
+            if id == NET_B {
+                goals_b.push(*p);
+            }
+        }
+        Scene { grid, goals_b }
+    }
+
+    fn legal(&self, path: &[Point]) -> bool {
+        path.len() >= 2
+            && path
+                .windows(2)
+                .all(|w| w[0] == w[1] || self.grid.segment_free_for(w[0], w[1], &[NET_A, NET_B]))
+            && path
+                .windows(2)
+                .all(|w| w[0].x == w[1].x || w[0].y == w[1].y)
+    }
+
+    fn cost(&self, path: &[Point]) -> u32 {
+        self.grid.path_cost(path, &[NET_A, NET_B])
+    }
+
+    fn maze(&self, a: Point, fa: Dir) -> Option<Vec<Point>> {
+        self.grid.route(
+            &[Start {
+                at: a,
+                dirs: vec![fa],
+            }],
+            &self.goals_b,
+            &[NET_A, NET_B],
+            40_000,
+        )
+    }
 }
 
 pub(crate) struct Router<'a> {
@@ -171,15 +425,21 @@ impl Router<'_> {
         if before.contains_key(&ka) && before.get(&ka) == before.get(&kb) {
             return Route::AlreadyConnected;
         }
-        let blockers: Vec<Rect> = bodies(sch, self.lib).into_iter().map(|(_, r)| r).collect();
-        for path in candidates(a, b) {
-            let wires = path_wires(&path);
-            if wires
-                .iter()
-                .any(|w| blockers.iter().any(|r| segment_crosses(w.a, w.b, r)))
-            {
-                continue;
-            }
+        let (fa, fb) = (facing(sch, self.lib, a), facing(sch, self.lib, b));
+        let scene = Scene::new(sch, self.lib, a, b);
+        let mut options: Vec<(u32, Vec<Point>)> = candidates(a.at, fa, b.at, fb)
+            .into_iter()
+            .filter(|p| scene.legal(p))
+            .map(|p| (scene.cost(&p), p))
+            .collect();
+        if let Some(p) = scene.maze(a.at, fa)
+            && scene.legal(&p)
+        {
+            options.push((scene.cost(&p), p));
+        }
+        options.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.len().cmp(&y.1.len())));
+        for (_, path) in options.iter().take(16) {
+            let wires = path_wires(path);
             let mut trial = sch.clone();
             for w in &wires {
                 trial.insert(Item::Wire(*w));
@@ -216,11 +476,12 @@ impl Router<'_> {
             .unwrap_or_else(|| unique_label(conn, hint));
         let before = pin_partition(conn);
         let keys = [key(a), key(b)];
+        let dirs = [facing(sch, self.lib, a), facing(sch, self.lib, b)];
         for stub in [2, 1, 0] {
             let mut trial = sch.clone();
             let mut items = Vec::new();
-            for p in [a, b] {
-                let end = p.at.offset(p.out.0 * GRID * stub, p.out.1 * GRID * stub);
+            for (p, d) in [a, b].into_iter().zip(dirs) {
+                let end = d.step(p.at, GRID * stub);
                 if end != p.at {
                     let w = Item::Wire(Wire::new(p.at, end));
                     trial.insert(w.clone());
@@ -271,4 +532,56 @@ pub(crate) fn unique_label(conn: &Connectivity, hint: &str) -> String {
         .map(|i| format!("{base}{i}"))
         .find(|n| !taken(n))
         .expect("unbounded")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schematic::parse;
+
+    fn lib() -> SymbolLibrary {
+        SymbolLibrary::builtin_only()
+    }
+
+    #[test]
+    fn wires_keep_clear_of_bodies_they_pass() {
+        // R2 sits right of R1 with its body between R1.A and the target
+        // pin: the route must go around R2 with clearance, not along it.
+        let src = "Version 4\nSHEET 1 880 680\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 64 -16 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\nSYMBOL res 192 0 R0\nSYMATTR InstName R3\nSYMATTR Value 1k\n";
+        let (mut sch, _) = parse(src);
+        let a = crate::edit::locate(&sch, &lib(), "R1.B").unwrap();
+        let b = crate::edit::locate(&sch, &lib(), "R3.B").unwrap();
+        let route = Router { lib: &lib() }.connect(&mut sch, &a, &b, "x");
+        assert!(matches!(route, Route::Wires(_)), "{route:?}");
+        let q = crate::layout::quality(&sch, &lib());
+        assert_eq!(q.wires_through_bodies, 0, "{q:?}");
+        // Nothing within the clearance of R2's drawn body.
+        let (r2, _) = lib().resolve("res").unwrap();
+        let body = place_rect(
+            core_body(&r2).unwrap(),
+            Point::new(64, -16),
+            crate::Orient::R0,
+        )
+        .inflate(CLEARANCE - 1);
+        for w in sch.wires() {
+            assert!(
+                !crate::layout::segment_hits(w.a, w.b, &body),
+                "{w:?} grazes R2"
+            );
+        }
+    }
+
+    #[test]
+    fn prefers_fewer_corners_among_legal_routes() {
+        // Two pins on one row with nothing between them: one straight wire.
+        let src = "Version 4\nSHEET 1 880 680\nSYMBOL res 0 0 R90\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 256 0 R90\nSYMATTR InstName R2\nSYMATTR Value 1k\n";
+        let (mut sch, _) = parse(src);
+        let a = crate::edit::locate(&sch, &lib(), "R1.A").unwrap();
+        let b = crate::edit::locate(&sch, &lib(), "R2.B").unwrap();
+        let route = Router { lib: &lib() }.connect(&mut sch, &a, &b, "x");
+        match route {
+            Route::Wires(w) => assert_eq!(w.len(), 1, "{w:?}"),
+            other => panic!("{other:?}"),
+        }
+    }
 }

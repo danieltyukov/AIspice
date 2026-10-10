@@ -1,0 +1,12 @@
+Buck converter, open loop, 12 V to about 6 V
+VIN in 0 12
+VG gate 0 PULSE(0 5 0 10n 10n 5u 10u)
+S1 in sw gate 0 SWMOD
+D1 0 sw MBR340
+L1 sw out 47u
+C1 out 0 100u
+RL out 0 5
+.model SWMOD SW(Ron=50m Roff=1Meg Vt=2.5 Vh=0.1)
+.model MBR340 D(Is=10u Rs=20m N=1.1 Cjo=200p)
+.tran 0 2m 0 100n
+.end

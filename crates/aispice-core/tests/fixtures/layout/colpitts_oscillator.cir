@@ -1,0 +1,15 @@
+Colpitts LC oscillator, common base
+VCC vcc 0 9
+R1 vcc b 47k
+R2 b 0 10k
+CB b 0 100n
+Q1 c b e 2N3904
+L1 vcc c 10u
+C1 c e 1n
+C2 e 0 3.3n
+RE e 0 1k
+C3 c out 10n
+RL out 0 10k
+.model 2N3904 NPN(IS=1E-14 VAF=100 BF=300 CJC=4p CJE=8p TF=300p)
+.tran 0 200u 0 10n
+.end

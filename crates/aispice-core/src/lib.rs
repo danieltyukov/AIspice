@@ -7,6 +7,7 @@ pub mod diff;
 pub mod edit;
 pub mod encoding;
 pub mod geometry;
+pub mod layout;
 pub mod lint;
 pub mod netlist;
 pub mod render;
