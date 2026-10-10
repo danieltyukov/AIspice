@@ -25,10 +25,21 @@ pub enum LineEnding {
 }
 
 /// How the file was stored on disk, so it can be written back the same way.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileFormat {
     pub encoding: Encoding,
     pub line_ending: LineEnding,
+}
+
+/// New files are written the way every LTspice version reads them: one byte
+/// per character, CRLF, no byte order mark (LTspice XVII aborts on one).
+impl Default for FileFormat {
+    fn default() -> Self {
+        Self {
+            encoding: Encoding::Latin1,
+            line_ending: LineEnding::CrLf,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,12 +271,36 @@ impl Text {
         }
     }
 
-    /// Directive lines, split on LTspice's stored `\n`.
-    pub fn lines(&self) -> impl Iterator<Item = &str> {
-        self.content
-            .split("\\n")
-            .map(str::trim)
+    /// The text as separate lines, decoding LTspice's escapes: `\n` is a line
+    /// break and `\\` a literal backslash, so a path such as
+    /// `C:\\temp\\new.lib` is not split at its `\n`. Blank lines are dropped.
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut cur = String::new();
+        let mut chars = self.content.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.peek() {
+                    Some('n') => {
+                        chars.next();
+                        out.push(std::mem::take(&mut cur));
+                        continue;
+                    }
+                    Some('\\') => {
+                        chars.next();
+                        cur.push('\\');
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            cur.push(c);
+        }
+        out.push(cur);
+        out.into_iter()
+            .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty())
+            .collect()
     }
 }
 

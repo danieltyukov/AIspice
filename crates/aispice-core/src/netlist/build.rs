@@ -115,9 +115,9 @@ pub fn build(sch: &Schematic, lib: &SymbolLibrary, title: &str) -> (Built, Conne
                 .model_libs
                 .iter()
                 .any(|l| l.eq_ignore_ascii_case(lib_file))
-            {
-                built.model_libs.push(lib_file.to_string());
-            }
+        {
+            built.model_libs.push(lib_file.to_string());
+        }
         items.push(Line::Element(Element { name, nodes, rest }));
     }
 

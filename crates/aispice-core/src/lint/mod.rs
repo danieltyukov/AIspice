@@ -403,7 +403,7 @@ pub fn lint(sch: &Schematic, lib: &SymbolLibrary) -> LintReport {
     if !sch
         .directives()
         .flat_map(|t| t.lines())
-        .any(crate::netlist::spice::is_analysis)
+        .any(|l| crate::netlist::spice::is_analysis(&l))
     {
         out.push(Finding::new(Severity::Warning, "no-analysis", "No analysis directive. Add one of .op, .tran, .ac, .dc, .noise or .tf before simulating."));
     }

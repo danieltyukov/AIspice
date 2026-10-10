@@ -287,6 +287,27 @@ mod tests {
     }
 
     #[test]
+    fn escaped_backslashes_are_not_line_breaks() {
+        let src =
+            "Version 4\nSHEET 1 880 680\nTEXT 0 0 Left 2 !.inc \"C:\\\\temp\\\\new.lib\"\\n.op\n";
+        let (sch, _) = parse(src);
+        let lines = sch.texts().next().unwrap().lines();
+        assert_eq!(lines, vec![".inc \"C:\\temp\\new.lib\"", ".op"]);
+    }
+
+    #[test]
+    fn latin1_with_wide_char_becomes_utf16() {
+        let (mut sch, _) = parse("Version 4\nSHEET 1 880 680\n");
+        sch.format.encoding = crate::encoding::Encoding::Latin1;
+        sch.items.push(Item::Text(Text::comment(
+            Point::new(0, 0),
+            "10 \u{3a9} load",
+        )));
+        let bytes = write_bytes(&sch);
+        assert_eq!(bytes[1], 0, "expected UTF-16LE");
+    }
+
+    #[test]
     fn utf16_file_round_trips_bytes() {
         let bytes = crate::encoding::encode(RC, crate::encoding::Encoding::Utf16Le { bom: false });
         let (sch, _) = parse_bytes(&bytes);
@@ -299,7 +320,7 @@ mod tests {
             "Version 4\nSHEET 1 880 680\nFLAG 0 0 V out\nTEXT 0 0 Left 2 !.param a=1\\n.tran 1m\n";
         let (sch, _) = parse(src);
         assert_eq!(sch.flags().next().unwrap().label, "V out");
-        let lines: Vec<_> = sch.texts().next().unwrap().lines().collect();
+        let lines = sch.texts().next().unwrap().lines();
         assert_eq!(lines, vec![".param a=1", ".tran 1m"]);
     }
 }

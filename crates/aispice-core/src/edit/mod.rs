@@ -1,0 +1,650 @@
+//! Typed edits to a schematic.
+//!
+//! The agent describes what it wants in circuit terms ("connect R1.B to
+//! C1.A", "put a 10k resistor between out and ground") and this module turns
+//! that into geometry. Pins are located from real symbol data and wires are
+//! routed and checked by [`route`], so a model never computes coordinates and
+//! never shorts two nets by accident. A batch of edits is atomic: if any edit
+//! fails, the schematic is left as it was.
+
+mod pins;
+mod place;
+mod route;
+
+pub use pins::{PinLoc, locate, split_pin_spec};
+
+use crate::geometry::{GRID, Orient, Point};
+use crate::netlist::{connect, connect::is_ground_label};
+use crate::schematic::{Flag, Item, Schematic, Text, TextKind, Wire};
+use crate::symbol::SymbolLibrary;
+use route::{Route, Router, pin_partition, unique_label};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EditError {
+    #[error("no component named {0}; the schematic has: {1}")]
+    NoSuchComponent(String, String),
+    #[error(
+        "`{0}` is not a pin reference; write it as COMPONENT.PIN, for example R1.A, R1.2 or V1.+"
+    )]
+    BadPinSpec(String),
+    #[error("{0} has no such pin; its pins are {1}")]
+    NoSuchPin(String, String),
+    #[error("{0}")]
+    Library(String),
+    #[error("a component named {0} already exists")]
+    NameTaken(String),
+    #[error("no directive or comment contains `{0}`")]
+    NoSuchText(String),
+    #[error("no wire runs from {0} to {1}")]
+    NoSuchWire(Point, Point),
+    #[error("edit {index} ({op}): {source}")]
+    InBatch {
+        index: usize,
+        op: String,
+        source: Box<EditError>,
+    },
+}
+
+/// A point on the sheet, given as `[x, y]`.
+pub type Xy = [i32; 2];
+
+fn pt(xy: Xy) -> Point {
+    Point::new(xy[0], xy[1])
+}
+
+/// One edit. Component and pin references use instance names (`R1`) and
+/// `COMPONENT.PIN` (`R1.A`, `R1.2`, `Q1.B`, `V1.+`, `U1.In-`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum EditOp {
+    /// Place a new component. Without `at`, it is put in free space near
+    /// `near` (or to the right of the circuit), clear of other parts and wires.
+    AddComponent {
+        /// Symbol name: res, cap, ind, voltage, current, diode, npn, pnp, nmos,
+        /// pmos, OpAmps\opamp, OpAmps\opamp2, bv, e, g, sw, ... or any symbol
+        /// in the user's libraries.
+        symbol: String,
+        /// Instance name. Defaults to the next free one for the prefix (R3).
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        value: Option<String>,
+        #[serde(default)]
+        at: Option<Xy>,
+        /// R0 (default), R90, R180, R270, M0, M90, M180, M270. R90 turns a
+        /// vertical two-terminal part horizontal.
+        #[serde(default)]
+        orient: Option<Orient>,
+        /// Place next to this component when `at` is not given.
+        #[serde(default)]
+        near: Option<String>,
+        /// Extra attributes such as SpiceLine (`Rser=0.1`) or Value2.
+        #[serde(default)]
+        attrs: BTreeMap<String, String>,
+    },
+    /// Delete a component and any wire stubs left touching nothing.
+    Remove {
+        name: String,
+    },
+    /// Swap a component's symbol (cap to polcap, npn to pnp, res to ind)
+    /// keeping its name, position, orientation and attributes.
+    ReplaceSymbol {
+        name: String,
+        symbol: String,
+    },
+    /// Move a component so its origin is at `to`. Wires are not dragged along.
+    Move {
+        name: String,
+        to: Xy,
+    },
+    /// Set the orientation, or turn a quarter clockwise when omitted.
+    Rotate {
+        name: String,
+        #[serde(default)]
+        orient: Option<Orient>,
+    },
+    SetValue {
+        name: String,
+        value: String,
+    },
+    /// Set any attribute: Value, Value2, SpiceLine, SpiceLine2, SpiceModel,
+    /// Prefix. An empty value removes it.
+    SetAttr {
+        name: String,
+        key: String,
+        value: String,
+    },
+    Rename {
+        name: String,
+        new_name: String,
+    },
+    /// Wire two pins together. Falls back to a pair of net labels when no
+    /// clean wire route exists.
+    Connect {
+        from: String,
+        to: String,
+    },
+    /// Join a pin to a named net: a short stub with a label, or a ground
+    /// symbol for `0`/`gnd`. Reuses an existing net of that name.
+    ConnectToNet {
+        pin: String,
+        net: String,
+    },
+    /// Remove the wires that end on a pin and the labels sitting on it.
+    Disconnect {
+        pin: String,
+    },
+    AddWire {
+        from: Xy,
+        to: Xy,
+    },
+    RemoveWire {
+        from: Xy,
+        to: Xy,
+    },
+    /// Put a net label (or ground for `0`) at a point.
+    AddLabel {
+        at: Xy,
+        label: String,
+    },
+    /// Remove labels with this text, or only the one at `at`.
+    RemoveLabel {
+        label: String,
+        #[serde(default)]
+        at: Option<Xy>,
+    },
+    /// Add a SPICE directive such as `.tran 10m` or `.param R=1k`. Placed
+    /// below the circuit unless `at` is given.
+    AddDirective {
+        text: String,
+        #[serde(default)]
+        at: Option<Xy>,
+    },
+    /// Remove every directive whose text contains `matching`.
+    RemoveDirective {
+        matching: String,
+    },
+    /// Replace the first directive containing `matching` with `text`.
+    ReplaceDirective {
+        matching: String,
+        text: String,
+    },
+    AddComment {
+        text: String,
+        #[serde(default)]
+        at: Option<Xy>,
+    },
+}
+
+impl EditOp {
+    fn label(&self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|v| v.get("op").and_then(|o| o.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "edit".into())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct EditReport {
+    /// One sentence per edit, in order.
+    pub applied: Vec<String>,
+    pub warnings: Vec<String>,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
+/// Apply edits atomically.
+pub fn apply(
+    sch: &mut Schematic,
+    lib: &SymbolLibrary,
+    ops: &[EditOp],
+) -> Result<EditReport, EditError> {
+    let mut work = sch.clone();
+    let mut report = EditReport::default();
+    for (index, op) in ops.iter().enumerate() {
+        apply_one(&mut work, lib, op, &mut report).map_err(|e| EditError::InBatch {
+            index,
+            op: op.label(),
+            source: Box::new(e),
+        })?;
+    }
+    *sch = work;
+    Ok(report)
+}
+
+fn apply_one(
+    sch: &mut Schematic,
+    lib: &SymbolLibrary,
+    op: &EditOp,
+    report: &mut EditReport,
+) -> Result<(), EditError> {
+    match op {
+        EditOp::AddComponent {
+            symbol,
+            name,
+            value,
+            at,
+            orient,
+            near,
+            attrs,
+        } => {
+            let (def, _) = lib
+                .resolve(symbol)
+                .map_err(|e| EditError::Library(e.to_string()))?;
+            let prefix = def.prefix().chars().next().unwrap_or('X').to_string();
+            let name = match name {
+                Some(n) if sch.symbol(n).is_some() => return Err(EditError::NameTaken(n.clone())),
+                Some(n) => n.clone(),
+                None => sch.next_inst_name(if prefix == "X" { "U" } else { &prefix }),
+            };
+            let orient = orient.unwrap_or_default();
+            let at = match at {
+                Some(xy) => pt(*xy),
+                None => place::free_spot(sch, lib, &def, orient, near.as_deref())?,
+            };
+            let mut sym = crate::schematic::Symbol::new(symbol.clone(), at, orient);
+            sym.set_attr("InstName", name.clone());
+            if let Some(v) = value {
+                sym.set_attr("Value", v.clone());
+            }
+            for (k, v) in attrs {
+                sym.set_attr(k, v.clone());
+            }
+            sch.insert(Item::Symbol(sym));
+            let conn = connect(sch, lib);
+            let joined: Vec<String> = conn
+                .pin_nets
+                .get(&name.to_ascii_uppercase())
+                .map(|pins| {
+                    pins.iter()
+                        .filter(|(_, n)| !conn.nets[*n].name.starts_with("NC_"))
+                        .map(|(p, n)| format!("{p} on {}", conn.nets[*n].name))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut msg = format!(
+                "Added {name} ({symbol}{}) at {at}",
+                value
+                    .as_deref()
+                    .map(|v| format!(", {v}"))
+                    .unwrap_or_default()
+            );
+            if !joined.is_empty() {
+                msg.push_str(&format!("; its pins already touch: {}", joined.join(", ")));
+            }
+            report.applied.push(msg);
+            report.added.push(name);
+        }
+        EditOp::Remove { name } => {
+            let idx = sch
+                .symbol_index(name)
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), pins::known_names(sch)))?;
+            sch.items.remove(idx);
+            let pruned = prune_dangling(sch, lib);
+            report.applied.push(format!(
+                "Removed {name}{}",
+                if pruned > 0 {
+                    format!(" and {pruned} loose wire(s)")
+                } else {
+                    String::new()
+                }
+            ));
+            report.removed.push(name.clone());
+        }
+        EditOp::ReplaceSymbol { name, symbol } => {
+            let (new_def, _) = lib
+                .resolve(symbol)
+                .map_err(|e| EditError::Library(e.to_string()))?;
+            let known = pins::known_names(sch);
+            let old_name = sch
+                .symbol(name)
+                .map(|s| s.name.clone())
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), known))?;
+            let (old_def, _) = lib
+                .resolve(&old_name)
+                .map_err(|e| EditError::Library(e.to_string()))?;
+            let sym = sch.symbol_mut(name).expect("checked above");
+            sym.name = symbol.clone();
+            let moved_pins = old_def.pins.len() != new_def.pins.len()
+                || old_def
+                    .pins_in_spice_order()
+                    .iter()
+                    .zip(new_def.pins_in_spice_order())
+                    .any(|(a, b)| a.at != b.at);
+            report
+                .applied
+                .push(format!("{name}: symbol {old_name} -> {symbol}"));
+            if moved_pins {
+                report.warnings.push(format!("{symbol} has its pins in different places than {old_name}; check {name}'s connections."));
+            }
+        }
+        EditOp::Move { name, to } => {
+            let sym = sch
+                .symbol_mut(name)
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), String::new()))?;
+            sym.at = pt(*to);
+            report.applied.push(format!("Moved {name} to {}", pt(*to)));
+            report.warnings.push(format!("{name} moved; wires to its old pin positions are not dragged along. Reconnect with connect if needed."));
+        }
+        EditOp::Rotate { name, orient } => {
+            let sym = sch
+                .symbol_mut(name)
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), String::new()))?;
+            sym.orient = orient.unwrap_or_else(|| sym.orient.rotated_cw());
+            let o = sym.orient;
+            report
+                .applied
+                .push(format!("Set {name} orientation to {o}"));
+        }
+        EditOp::SetValue { name, value } => {
+            let known = pins::known_names(sch);
+            let sym = sch
+                .symbol_mut(name)
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), known))?;
+            let old = sym.value().unwrap_or("").to_string();
+            sym.set_attr("Value", value.clone());
+            report.applied.push(format!(
+                "{name}: value {} -> {value}",
+                if old.is_empty() { "(none)" } else { &old }
+            ));
+        }
+        EditOp::SetAttr { name, key, value } => {
+            let known = pins::known_names(sch);
+            let sym = sch
+                .symbol_mut(name)
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), known))?;
+            sym.set_attr(key, value.clone());
+            report.applied.push(if value.is_empty() {
+                format!("{name}: removed {key}")
+            } else {
+                format!("{name}: {key} = {value}")
+            });
+        }
+        EditOp::Rename { name, new_name } => {
+            if sch.symbol(new_name).is_some() {
+                return Err(EditError::NameTaken(new_name.clone()));
+            }
+            let known = pins::known_names(sch);
+            let sym = sch
+                .symbol_mut(name)
+                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), known))?;
+            sym.set_attr("InstName", new_name.clone());
+            report.applied.push(format!("Renamed {name} to {new_name}"));
+        }
+        EditOp::Connect { from, to } => {
+            let a = locate(sch, lib, from)?;
+            let b = locate(sch, lib, to)?;
+            let router = Router { lib };
+            let hint = format!("{}_{}", a.inst, a.pin);
+            match router.connect(sch, &a, &b, &hint) {
+                Route::AlreadyConnected => report
+                    .applied
+                    .push(format!("{from} and {to} were already connected")),
+                Route::Wires(w) => report.applied.push(format!(
+                    "Wired {from} to {to} ({} segment{})",
+                    w.len(),
+                    if w.len() == 1 { "" } else { "s" }
+                )),
+                Route::Labels { label, .. } => report.applied.push(format!(
+                    "Joined {from} and {to} with net label `{label}` (no clean wire route)"
+                )),
+            }
+        }
+        EditOp::ConnectToNet { pin, net } => connect_to_net(sch, lib, pin, net, report)?,
+        EditOp::Disconnect { pin } => {
+            let p = locate(sch, lib, pin)?;
+            let before = sch.items.len();
+            sch.items.retain(|i| match i {
+                Item::Wire(w) => w.a != p.at && w.b != p.at,
+                Item::Flag(f) => f.at != p.at,
+                _ => true,
+            });
+            let removed = before - sch.items.len();
+            let pruned = prune_dangling(sch, lib);
+            report.applied.push(format!(
+                "Disconnected {pin} ({} item(s) removed)",
+                removed + pruned
+            ));
+        }
+        EditOp::AddWire { from, to } => {
+            sch.insert(Item::Wire(Wire::new(pt(*from), pt(*to))));
+            report
+                .applied
+                .push(format!("Added wire {} to {}", pt(*from), pt(*to)));
+            if from[0] != to[0] && from[1] != to[1] {
+                report.warnings.push("That wire is diagonal; LTspice accepts it but schematics read better with horizontal and vertical wires.".into());
+            }
+        }
+        EditOp::RemoveWire { from, to } => {
+            let target = Wire::new(pt(*from), pt(*to));
+            let idx = sch
+                .items
+                .iter()
+                .position(|i| matches!(i, Item::Wire(w) if w.same_as(&target)))
+                .ok_or(EditError::NoSuchWire(target.a, target.b))?;
+            sch.items.remove(idx);
+            report
+                .applied
+                .push(format!("Removed wire {} to {}", target.a, target.b));
+        }
+        EditOp::AddLabel { at, label } => {
+            sch.insert(Item::Flag(Flag {
+                at: pt(*at),
+                label: label.clone(),
+            }));
+            report
+                .applied
+                .push(format!("Added label `{label}` at {}", pt(*at)));
+        }
+        EditOp::RemoveLabel { label, at } => {
+            let before = sch.items.len();
+            sch.items.retain(|i| !matches!(i, Item::Flag(f) if f.label.eq_ignore_ascii_case(label) && at.is_none_or(|xy| f.at == pt(xy))));
+            let n = before - sch.items.len();
+            report
+                .applied
+                .push(format!("Removed {n} label(s) `{label}`"));
+        }
+        EditOp::AddDirective { text, at } => {
+            let text = text.trim().trim_start_matches('!').to_string();
+            let at = at.map(pt).unwrap_or_else(|| place::text_spot(sch, lib));
+            sch.insert(Item::Text(Text::directive(at, escape(&text))));
+            report.applied.push(format!("Added directive {text}"));
+        }
+        EditOp::RemoveDirective { matching } => {
+            let before = sch.items.len();
+            sch.items.retain(|i| !matches!(i, Item::Text(t) if t.kind == TextKind::Directive && t.content.contains(matching.as_str())));
+            let n = before - sch.items.len();
+            if n == 0 {
+                return Err(EditError::NoSuchText(matching.clone()));
+            }
+            report
+                .applied
+                .push(format!("Removed {n} directive(s) containing `{matching}`"));
+        }
+        EditOp::ReplaceDirective { matching, text } => {
+            let t = sch
+                .items
+                .iter_mut()
+                .find_map(|i| match i {
+                    Item::Text(t)
+                        if t.kind == TextKind::Directive
+                            && t.content.contains(matching.as_str()) =>
+                    {
+                        Some(t)
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| EditError::NoSuchText(matching.clone()))?;
+            let old = t.content.clone();
+            t.content = escape(text.trim().trim_start_matches('!'));
+            report
+                .applied
+                .push(format!("Replaced directive `{old}` with `{}`", text.trim()));
+        }
+        EditOp::AddComment { text, at } => {
+            let at = at.map(pt).unwrap_or_else(|| place::text_spot(sch, lib));
+            sch.insert(Item::Text(Text::comment(at, escape(text))));
+            report.applied.push("Added comment".into());
+        }
+    }
+    Ok(())
+}
+
+/// Encode real line breaks and backslashes the way LTspice stores them.
+fn escape(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace("\r\n", "\n")
+        .replace('\n', "\\n")
+}
+
+fn connect_to_net(
+    sch: &mut Schematic,
+    lib: &SymbolLibrary,
+    pin: &str,
+    net: &str,
+    report: &mut EditReport,
+) -> Result<(), EditError> {
+    let p = locate(sch, lib, pin)?;
+    let conn = connect(sch, lib);
+    let ground = is_ground_label(net);
+    let label = if ground {
+        "0".to_string()
+    } else {
+        net.to_string()
+    };
+    if let Some(current) = conn.net_of(&p.inst, &p.pin)
+        && (current.name.eq_ignore_ascii_case(&label)
+            || current
+                .labels
+                .iter()
+                .any(|l| l.eq_ignore_ascii_case(&label)))
+        {
+            report.applied.push(format!("{pin} is already on {label}"));
+            return Ok(());
+        }
+    // If the net exists with pins, try a wire to its nearest pin first.
+    if let Some(target) = conn.net(&label).filter(|n| !n.pins.is_empty() && !ground) {
+        let nearest = target
+            .pins
+            .iter()
+            .min_by_key(|q| (q.at.x - p.at.x).abs() + (q.at.y - p.at.y).abs())
+            .expect("non-empty");
+        let spec = format!("{}.{}", nearest.inst, nearest.pin);
+        let other = locate(sch, lib, &spec)?;
+        let router = Router { lib };
+        let before = sch.clone();
+        match router.connect(sch, &p, &other, &label) {
+            Route::Wires(w) if w.len() <= 3 => {
+                report
+                    .applied
+                    .push(format!("Wired {pin} to {spec} on net {label}"));
+                return Ok(());
+            }
+            Route::AlreadyConnected => {
+                report.applied.push(format!("{pin} is already on {label}"));
+                return Ok(());
+            }
+            _ => *sch = before,
+        }
+    }
+    // Otherwise a stub and a label (or ground symbol), checked like any route.
+    let before = pin_partition(&conn);
+    let key = (p.inst.to_ascii_uppercase(), p.pin.to_ascii_uppercase());
+    for stub in [2, 3, 1, 0] {
+        let end = p.at.offset(p.out.0 * GRID * stub, p.out.1 * GRID * stub);
+        let mut trial = sch.clone();
+        if end != p.at {
+            trial.insert(Item::Wire(Wire::new(p.at, end)));
+        }
+        trial.insert(Item::Flag(Flag {
+            at: end,
+            label: label.clone(),
+        }));
+        let tconn = connect(&trial, lib);
+        let after = pin_partition(&tconn);
+        let on_net = tconn.net_of(&p.inst, &p.pin).is_some_and(|n| {
+            n.name.eq_ignore_ascii_case(&label)
+                || n.labels.iter().any(|l| l.eq_ignore_ascii_case(&label))
+        });
+        // Allowed merges: this pin's net with whatever already carries the label.
+        let mut joined = vec![key.clone()];
+        if let Some(n) = conn.net(&label)
+            && let Some(q) = n.pins.first() {
+                joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
+            }
+        if on_net && route::only_joins(&before, &after, &joined) {
+            *sch = trial;
+            report.applied.push(if ground {
+                format!("Grounded {pin}")
+            } else {
+                format!("Connected {pin} to net {label}")
+            });
+            return Ok(());
+        }
+    }
+    let label_used = unique_label(&conn, &label);
+    report.warnings.push(format!("Could not attach {pin} to {label} without touching another net; nothing changed (a free label would be `{label_used}`)."));
+    Ok(())
+}
+
+/// Remove wires with an end that touches nothing at all, repeatedly, so a
+/// deleted part does not leave stubs behind. Returns how many were removed.
+fn prune_dangling(sch: &mut Schematic, lib: &SymbolLibrary) -> usize {
+    let mut removed = 0;
+    loop {
+        let conn = connect(sch, lib);
+        let mut anchors: std::collections::HashSet<Point> = conn
+            .nets
+            .iter()
+            .flat_map(|n| n.pins.iter().map(|p| p.at))
+            .collect();
+        anchors.extend(sch.flags().map(|f| f.at));
+        let wires: Vec<Wire> = sch.wires().copied().collect();
+        let segs: Vec<(Point, Point)> = wires.iter().map(|w| (w.a, w.b)).collect();
+        let mut ends: std::collections::HashMap<Point, usize> = std::collections::HashMap::new();
+        for w in &wires {
+            *ends.entry(w.a).or_default() += 1;
+            *ends.entry(w.b).or_default() += 1;
+        }
+        let (index, _) = crate::geometry::SegmentIndex::new(&segs);
+        let loose = wires.iter().position(|w| {
+            [w.a, w.b].into_iter().any(|e| {
+                let c = index.cover(e);
+                let horizontal = w.a.y == w.b.y;
+                let (along, across) = if horizontal {
+                    (c.horizontal, c.vertical)
+                } else {
+                    (c.vertical, c.horizontal)
+                };
+                let coord = if horizontal { e.x } else { e.y };
+                let on_other =
+                    across.is_some() || along.is_some_and(|s| s.lo < coord && coord < s.hi);
+                ends.get(&e).copied().unwrap_or(0) == 1 && !on_other && !anchors.contains(&e)
+            })
+        });
+        match loose {
+            Some(i) => {
+                let target = wires[i];
+                if let Some(pos) = sch
+                    .items
+                    .iter()
+                    .position(|it| matches!(it, Item::Wire(w) if *w == target))
+                {
+                    sch.items.remove(pos);
+                    removed += 1;
+                } else {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+    removed
+}
+
+#[cfg(test)]
+mod tests;

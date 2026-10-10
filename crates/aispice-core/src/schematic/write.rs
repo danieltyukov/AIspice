@@ -20,9 +20,18 @@ pub fn write(sch: &Schematic) -> String {
     }
 }
 
-/// Write and encode the schematic the way it was stored.
+/// Write and encode the schematic the way it was stored. A one-byte file that
+/// now holds a character outside Latin-1 (an Ohm sign, say) is written as
+/// UTF-16LE without a byte order mark, which is what LTspice XVII does itself.
 pub fn write_bytes(sch: &Schematic) -> Vec<u8> {
-    encoding::encode(&write(sch), sch.format.encoding)
+    let text = write(sch);
+    let enc = match sch.format.encoding {
+        encoding::Encoding::Latin1 if text.chars().any(|c| c as u32 > 0xFF) => {
+            encoding::Encoding::Utf16Le { bom: false }
+        }
+        e => e,
+    };
+    encoding::encode(&text, enc)
 }
 
 fn write_item(out: &mut String, item: &Item) {
