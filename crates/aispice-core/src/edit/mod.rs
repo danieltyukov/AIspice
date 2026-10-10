@@ -8,10 +8,12 @@
 //! fails, the schematic is left as it was.
 
 mod detach;
+mod parse;
 mod pins;
 mod place;
 mod route;
 
+pub use parse::{FIELD_ALIASES, OPS, parse_edits};
 pub use pins::{PinLoc, locate, split_pin_spec};
 
 use crate::geometry::{GRID, Orient, Point};
@@ -68,6 +70,12 @@ pub enum EditError {
         value: String,
         reason: &'static str,
     },
+    /// An edit whose fields do not fit its op, as serde reports it.
+    #[error("{0}")]
+    Schema(String),
+    /// An edit that is not even an object with an op.
+    #[error("edit {index}: {message}")]
+    Malformed { index: usize, message: String },
     #[error("edit {index} ({op}): {source}")]
     InBatch {
         index: usize,
@@ -982,9 +990,22 @@ pub fn flat_edit_schema() -> serde_json::Value {
         s["description"] = serde_json::Value::String(desc.to_string());
         s
     };
+    let forms: Vec<String> = OPS
+        .iter()
+        .map(|(op, _, form)| format!("{op} {form}"))
+        .collect();
+    let aliases: Vec<String> = FIELD_ALIASES
+        .iter()
+        .map(|(op, alias, real)| format!("{op} `{alias}` for `{real}`"))
+        .collect();
+    let description = format!(
+        "One edit. Fields per op: {}. PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-. Also accepted: {}; `component` or `part` for `name`; set_attribute for set_attr.",
+        forms.join(" | "),
+        aliases.join(", ")
+    );
     serde_json::json!({
         "type": "object",
-        "description": "One edit. Required fields per op: add_component(symbol; optional name, value, orient, near, at, attrs) | remove(name) | replace_symbol(name, symbol) | move(name, to=[x,y]) | rotate(name; optional orient) | set_value(name, value) | set_attr(name, key, value) | rename(name, new_name) | connect(from=PIN, to=PIN) | connect_to_net(pin, net) | disconnect(pin) | add_wire(from=[x,y], to=[x,y]) | remove_wire(from=[x,y], to=[x,y]) | add_label(at, label) | remove_label(label; optional at) | add_directive(text; optional at) | remove_directive(matching) | replace_directive(matching, text) | add_comment(text; optional at). PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-.",
+        "description": description,
         "properties": {
             "op": {"type": "string", "enum": ["add_component", "remove", "replace_symbol", "move", "rotate", "set_value", "set_attr", "rename", "connect", "connect_to_net", "disconnect", "add_wire", "remove_wire", "add_label", "remove_label", "add_directive", "remove_directive", "replace_directive", "add_comment"], "description": "The operation."},
             "symbol": field(serde_json::json!({"type": "string"}), "add_component, replace_symbol: symbol name such as res, cap, ind, voltage, current, diode, npn, pnp, nmos, pmos, OpAmps\\opamp, OpAmps\\opamp2, bv, e, g, sw, or a library part."),
@@ -994,12 +1015,12 @@ pub fn flat_edit_schema() -> serde_json::Value {
             "near": field(serde_json::json!({"type": "string"}), "add_component: place next to this component."),
             "at": field(xy.clone(), "add_component, add_label, remove_label, add_directive, add_comment: a sheet position [x, y]. Leave out for automatic placement."),
             "attrs": field(serde_json::json!({"type": "object", "additionalProperties": {"type": "string"}}), "add_component: extra attributes such as {\"SpiceLine\": \"AC 1\"}."),
-            "key": field(serde_json::json!({"type": "string"}), "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix)."),
+            "key": field(serde_json::json!({"type": "string"}), "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix). `attr` is accepted in its place."),
             "new_name": field(serde_json::json!({"type": "string"}), "rename: the new instance name."),
             "from": field(pin_or_xy.clone(), "connect: a pin such as R1.B. add_wire, remove_wire: a point [x, y]."),
             "to": field(pin_or_xy, "connect: a pin such as C1.A. move: the new position [x, y]. add_wire, remove_wire: a point [x, y]."),
             "pin": field(serde_json::json!({"type": "string"}), "connect_to_net, disconnect: a pin such as V1.- or C1.B."),
-            "net": field(serde_json::json!({"type": "string"}), "connect_to_net: the net name; 0 or gnd for ground."),
+            "net": field(serde_json::json!({"type": "string"}), "connect_to_net: the net name as read_schematic shows it; 0 or gnd for ground. A name, never a pin reference such as U1.out: to wire two pins use connect. `to` is accepted in its place."),
             "label": field(serde_json::json!({"type": "string"}), "add_label, remove_label: the net label text."),
             "text": field(serde_json::json!({"type": "string"}), "add_directive, replace_directive, add_comment: the text, e.g. .tran 10m or .ac dec 20 10 100k."),
             "matching": field(serde_json::json!({"type": "string"}), "remove_directive, replace_directive: text that identifies the directive, e.g. .tran.")

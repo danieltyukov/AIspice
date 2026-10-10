@@ -5,7 +5,7 @@ use crate::workspace::Workspace;
 use aispice_agent::tool::parse_input;
 use aispice_agent::{Tool, ToolContext, ToolOutput, ToolSpec, schema_for};
 use aispice_core::diff::diff;
-use aispice_core::edit::{EditOp, apply};
+use aispice_core::edit::{EditOp, apply, parse_edits};
 use aispice_core::lint::{Severity, lint};
 use aispice_core::schematic::Schematic;
 use aispice_core::summary::summarize;
@@ -28,6 +28,23 @@ pub(crate) fn spec<T: JsonSchema>(name: &str, description: &str) -> ToolSpec {
 fn edit_list_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     let v = serde_json::json!({"type": "array", "items": aispice_core::edit::flat_edit_schema()});
     schemars::Schema::try_from(v).expect("valid schema")
+}
+
+/// The edit list as sent: a list of edit objects, or a JSON string holding
+/// one (some models send it that way). Each edit is read on its own so a
+/// mistake names the edit that has it.
+fn read_edits(v: &Value) -> Result<(Vec<EditOp>, Vec<String>), String> {
+    let not_a_list = || "`edits` must be a list of edit objects, each with an `op`".to_string();
+    let list = match v {
+        Value::Array(a) => a.clone(),
+        Value::Null => Vec::new(),
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(Value::Array(a)) => a,
+            _ => return Err(not_a_list()),
+        },
+        _ => return Err(not_a_list()),
+    };
+    parse_edits(&list).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -111,8 +128,9 @@ pub struct EditInput {
     /// Path of the schematic relative to the project folder.
     pub circuit: String,
     /// Edits, applied in order and atomically: if one fails, none are kept.
+    /// Errors name the edit by its position in this list, counting from 0.
     #[schemars(schema_with = "edit_list_schema")]
-    pub edits: Vec<EditOp>,
+    pub edits: Value,
     /// One short sentence saying why, shown in the history.
     #[serde(default)]
     pub reason: Option<String>,
@@ -138,18 +156,23 @@ impl Tool for EditSchematic {
             Ok(i) => i,
             Err(e) => return e,
         };
+        let (edits, notes) = match read_edits(&input.edits) {
+            Ok(v) => v,
+            Err(e) => return ToolOutput::error(format!("No changes made. {e}")),
+        };
         let ws = self.ws.clone();
         // Compute the edit off the executor, ask for approval if configured,
         // then save off the executor again.
         let planned = tokio::task::spawn_blocking({
             let ws = ws.clone();
             let circuit = input.circuit.clone();
-            let edits = input.edits.clone();
             move || -> Result<(Schematic, Schematic, aispice_core::edit::EditReport), String> {
                 let p = ws.project().map_err(|e| e.to_string())?;
                 let (before, _) = p.load(&circuit).map_err(|e| e.to_string())?;
                 let mut after = before.clone();
-                let report = apply(&mut after, p.library(), &edits).map_err(|e| e.to_string())?;
+                let mut report =
+                    apply(&mut after, p.library(), &edits).map_err(|e| e.to_string())?;
+                report.warnings.extend(notes);
                 Ok((before, after, report))
             }
         })
@@ -254,7 +277,7 @@ pub struct CreateInput {
     /// from an empty sheet (same operations as edit_schematic).
     #[serde(default)]
     #[schemars(schema_with = "edit_list_schema")]
-    pub edits: Vec<EditOp>,
+    pub edits: Value,
 }
 
 /// Netlists larger than this are refused rather than laid out: layout cost
@@ -335,12 +358,15 @@ impl Tool for CreateSchematic {
             Ok(i) => i,
             Err(e) => return e,
         };
+        let edits = match read_edits(&input.edits) {
+            Ok((edits, _)) => edits,
+            Err(e) => return ToolOutput::error(format!("No file created. {e}")),
+        };
         let ws = self.ws.clone();
         let planned = tokio::task::spawn_blocking({
             let ws = ws.clone();
             let circuit = input.circuit.clone();
             let netlist = input.netlist.clone();
-            let edits = input.edits.clone();
             move || -> Result<(Schematic, Vec<String>, Option<f64>, Vec<String>), String> {
                 let p = ws.project().map_err(|e| e.to_string())?;
                 if !circuit.to_ascii_lowercase().ends_with(".asc") {
