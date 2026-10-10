@@ -157,3 +157,141 @@ async fn tools_refuse_paths_outside_the_project() {
     assert_eq!(errors.len(), 3);
     assert!(errors.iter().all(|(is_err, _)| *is_err), "{errors:?}");
 }
+
+async fn call(
+    ws: &Arc<Workspace>,
+    tool: &str,
+    input: serde_json::Value,
+) -> aispice_agent::ToolOutput {
+    let reg = registry(ws.clone());
+    reg.get(tool)
+        .unwrap()
+        .call(&ToolContext::default(), input)
+        .await
+}
+
+fn text_of(out: &aispice_agent::ToolOutput) -> String {
+    out.content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A netlist becomes a drawn schematic that netlists back to the same
+/// circuit, with or without a title line.
+#[tokio::test(flavor = "multi_thread")]
+async fn create_schematic_draws_a_netlist() {
+    let (dir, ws) = workspace();
+    for (file, netlist) in [
+        (
+            "rc.asc",
+            "* RC low-pass\nV1 in 0 AC 1\nR1 in out 1k\nC1 out 0 100n\n.ac dec 20 10 100k\n",
+        ),
+        // No title line: the first element must not be swallowed as one.
+        (
+            "untitled.asc",
+            "V1 in 0 AC 1\nR1 in out 1k\nC1 out 0 100n\n.ac dec 20 10 100k\n",
+        ),
+    ] {
+        let out = call(
+            &ws,
+            "create_schematic",
+            json!({"circuit": file, "netlist": netlist}),
+        )
+        .await;
+        let text = text_of(&out);
+        assert!(!out.is_error, "{text}");
+        assert!(
+            text.contains("Created") && text.contains("3 component"),
+            "{text}"
+        );
+        let out = call(&ws, "netlist", json!({"circuit": file})).await;
+        let net = text_of(&out).to_ascii_lowercase();
+        for line in [
+            "v1 in 0",
+            "r1 in out 1k",
+            "c1 out 0 100n",
+            ".ac dec 20 10 100k",
+        ] {
+            assert!(net.contains(line), "{file}: missing `{line}` in\n{net}");
+        }
+    }
+    assert!(dir.path().join("rc.asc").is_file());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_schematic_refuses_unsafe_or_huge_netlists() {
+    let (dir, ws) = workspace();
+    let control = "* x\nR1 a 0 1k\n.control\nshell rm -rf ~\n.endc\n";
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "bad.asc", "netlist": control}),
+    )
+    .await;
+    assert!(out.is_error, "{}", text_of(&out));
+    assert!(text_of(&out).contains("not allowed"), "{}", text_of(&out));
+
+    let huge = format!("* big\n{}", "R1 a 0 1k\n".repeat(10_000));
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "big.asc", "netlist": huge}),
+    )
+    .await;
+    assert!(
+        out.is_error && text_of(&out).contains("limit"),
+        "{}",
+        text_of(&out)
+    );
+
+    let many: String = (0..200)
+        .map(|i| format!("R{i} n{i} n{} 1k\n", i + 1))
+        .collect();
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "many.asc", "netlist": format!("* many\n{many}")}),
+    )
+    .await;
+    assert!(
+        out.is_error && text_of(&out).contains("elements"),
+        "{}",
+        text_of(&out)
+    );
+
+    for f in ["bad.asc", "big.asc", "many.asc"] {
+        assert!(!dir.path().join(f).exists(), "{f} was written");
+    }
+}
+
+struct Decline;
+
+#[async_trait::async_trait]
+impl aispice_tools::Approver for Decline {
+    async fn approve(&self, _circuit: &str, _summary: &str, _diff: &str) -> bool {
+        false
+    }
+}
+
+/// Was a gap: creating a file skipped the approval asked for in
+/// ask-before-apply mode.
+#[tokio::test(flavor = "multi_thread")]
+async fn create_schematic_asks_for_approval() {
+    let (dir, ws) = workspace();
+    ws.set_hooks(aispice_tools::workspace::Hooks {
+        approver: Some(Arc::new(Decline)),
+        after_save: None,
+    });
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "rc.asc", "netlist": "* rc\nV1 in 0 1\nR1 in 0 1k\n.op\n"}),
+    )
+    .await;
+    assert!(text_of(&out).contains("declined"), "{}", text_of(&out));
+    assert!(!dir.path().join("rc.asc").exists());
+}

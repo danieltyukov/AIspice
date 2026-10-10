@@ -243,11 +243,76 @@ impl Tool for EditSchematic {
 pub struct CreateInput {
     /// New file path relative to the project folder, ending in `.asc`.
     pub circuit: String,
-    /// Optional edits to build the circuit right away (same operations as
-    /// edit_schematic).
+    /// A SPICE netlist to draw as a readable schematic: elements, `.model`
+    /// and `.subckt` definitions and analysis directives, one per line. Use
+    /// it to turn a netlist, a textbook circuit or a circuit read from an
+    /// image into a schematic. aispice places and wires every part and
+    /// checks that the drawing netlists back to exactly this circuit.
+    #[serde(default)]
+    pub netlist: Option<String>,
+    /// Edits to apply after the netlist is drawn, or to build the circuit
+    /// from an empty sheet (same operations as edit_schematic).
     #[serde(default)]
     #[schemars(schema_with = "edit_list_schema")]
     pub edits: Vec<EditOp>,
+}
+
+/// Netlists larger than this are refused rather than laid out: layout cost
+/// grows quickly with the number of parts.
+const MAX_NETLIST_BYTES: usize = 64 * 1024;
+const MAX_LAYOUT_ELEMENTS: usize = 150;
+
+/// SPICE treats the first line as a title. Models often leave it out, so a
+/// first line that already reads as an element or a directive gets a title
+/// in front of it instead of being swallowed.
+fn with_title(netlist: &str, circuit: &str) -> String {
+    let first = netlist.lines().map(str::trim).find(|l| !l.is_empty());
+    let looks_like_content = first.is_some_and(|l| {
+        l.starts_with('.')
+            || (l.split_whitespace().count() >= 3 && l.as_bytes()[0].is_ascii_alphabetic())
+    });
+    if looks_like_content {
+        format!("* {circuit}\n{netlist}")
+    } else {
+        netlist.to_string()
+    }
+}
+
+/// Draw a netlist as a schematic, after checking it is safe and small enough.
+fn layout_netlist(
+    text: &str,
+    circuit: &str,
+    lib: &aispice_core::symbol::SymbolLibrary,
+) -> Result<(Schematic, Vec<String>, f64), String> {
+    if text.len() > MAX_NETLIST_BYTES {
+        return Err(format!(
+            "the netlist is {} bytes; the limit is {MAX_NETLIST_BYTES}. Split it into subcircuits.",
+            text.len()
+        ));
+    }
+    let violations = aispice_core::netlist::policy::check_lexical(text);
+    if !violations.is_empty() {
+        let list: Vec<String> = violations
+            .iter()
+            .take(5)
+            .map(|v| format!("`{}`: {}", v.line, v.reason))
+            .collect();
+        return Err(format!("the netlist is not allowed: {}", list.join("; ")));
+    }
+    let netlist = aispice_core::netlist::parse(&with_title(text, circuit));
+    let elements = netlist
+        .items
+        .iter()
+        .filter(|l| matches!(l, aispice_core::netlist::Line::Element(_)))
+        .count();
+    if elements > MAX_LAYOUT_ELEMENTS {
+        return Err(format!(
+            "the netlist has {elements} elements; layout handles up to {MAX_LAYOUT_ELEMENTS}. Put repeated blocks in subcircuits."
+        ));
+    }
+    let result = aispice_core::layout::from_netlist(&netlist, lib, &Default::default())
+        .map_err(|e| e.to_string())?;
+    Ok((result.schematic, result.warnings, result.quality.score))
 }
 
 pub struct CreateSchematic {
@@ -259,7 +324,7 @@ impl Tool for CreateSchematic {
     fn spec(&self) -> ToolSpec {
         spec::<CreateInput>(
             "create_schematic",
-            "Create a new LTspice schematic file in the project, optionally building it with the same edits edit_schematic accepts. Refuses to overwrite an existing file.",
+            "Create a new LTspice schematic in the project. Give a SPICE netlist to have it drawn as a readable schematic (parts placed, wires routed, checked to netlist back to the same circuit), or build it from an empty sheet with the edits edit_schematic accepts, or both (edits apply after the drawing). Refuses to overwrite an existing file.",
         )
     }
 
@@ -269,11 +334,54 @@ impl Tool for CreateSchematic {
             Err(e) => return e,
         };
         let ws = self.ws.clone();
+        let planned = tokio::task::spawn_blocking({
+            let ws = ws.clone();
+            let circuit = input.circuit.clone();
+            let netlist = input.netlist.clone();
+            let edits = input.edits.clone();
+            move || -> Result<(Schematic, Vec<String>, Option<f64>, Vec<String>), String> {
+                let p = ws.project().map_err(|e| e.to_string())?;
+                if !circuit.to_ascii_lowercase().ends_with(".asc") {
+                    return Err(format!("{circuit} must end in .asc"));
+                }
+                if p.resolve(&circuit).map_err(|e| e.to_string())?.exists() {
+                    return Err(format!("{circuit} already exists; edit it instead"));
+                }
+                let (mut sch, notes, score) = match netlist.as_deref().map(str::trim) {
+                    Some(text) if !text.is_empty() => {
+                        let (sch, notes, score) = layout_netlist(text, &circuit, p.library())?;
+                        (sch, notes, Some(score))
+                    }
+                    _ => (Schematic::new(), Vec::new(), None),
+                };
+                let report = apply(&mut sch, p.library(), &edits).map_err(|e| e.to_string())?;
+                Ok((sch, notes, score, report.applied))
+            }
+        })
+        .await;
+        let (sch, notes, score, applied) = match planned {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => return ToolOutput::error(format!("No file created. {e}")),
+            Err(e) => return ToolOutput::error(format!("internal error: {e}")),
+        };
+        let p = match ws.project() {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let d = diff(&Schematic::new(), &sch, p.library());
+        if !ws
+            .approve(
+                &input.circuit,
+                &format!("Create {}", input.circuit),
+                &d.text,
+            )
+            .await
+        {
+            return ToolOutput::text(
+                "The user declined creating this file; nothing was written. Ask what they would prefer.",
+            );
+        }
         blocking(move || {
-            let p = ws.project().map_err(|e| e.to_string())?;
-            let mut sch = Schematic::new();
-            let report = apply(&mut sch, p.library(), &input.edits)
-                .map_err(|e| format!("No file created. {e}"))?;
             p.create(&input.circuit, &sch).map_err(|e| e.to_string())?;
             if let Ok(path) = p.resolve(&input.circuit) {
                 ws.after_save(&path);
@@ -284,7 +392,15 @@ impl Tool for CreateSchematic {
                 input.circuit,
                 summary.components.len()
             );
-            for a in &report.applied {
+            if let Some(score) = score {
+                text.push_str(&format!(
+                    "Drawn from the netlist (layout quality {score:.0}/100) and checked to netlist back to it.\n"
+                ));
+            }
+            for n in &notes {
+                text.push_str(&format!("  note: {n}\n"));
+            }
+            for a in &applied {
                 text.push_str(&format!("  {a}\n"));
             }
             text.push_str(&summary.to_text());

@@ -215,7 +215,7 @@ The edit is saved immediately (the user can undo it) and LTspice reloads if it i
 
 ## `create_schematic`
 
-Create a new LTspice schematic file in the project, optionally building it with the same edits edit_schematic accepts. Refuses to overwrite an existing file.
+Create a new LTspice schematic in the project. Give a SPICE netlist to have it drawn as a readable schematic (parts placed, wires routed, checked to netlist back to the same circuit), or build it from an empty sheet with the edits edit_schematic accepts, or both (edits apply after the drawing). Refuses to overwrite an existing file.
 
 <details><summary>Input schema</summary>
 
@@ -228,7 +228,7 @@ Create a new LTspice schematic file in the project, optionally building it with 
     },
     "edits": {
       "default": [],
-      "description": "Optional edits to build the circuit right away (same operations as\nedit_schematic).",
+      "description": "Edits to apply after the netlist is drawn, or to build the circuit\nfrom an empty sheet (same operations as edit_schematic).",
       "items": {
         "description": "One edit. Required fields per op: add_component(symbol; optional name, value, orient, near, at, attrs) | remove(name) | replace_symbol(name, symbol) | move(name, to=[x,y]) | rotate(name; optional orient) | set_value(name, value) | set_attr(name, key, value) | rename(name, new_name) | connect(from=PIN, to=PIN) | connect_to_net(pin, net) | disconnect(pin) | add_wire(from=[x,y], to=[x,y]) | remove_wire(from=[x,y], to=[x,y]) | add_label(at, label) | remove_label(label; optional at) | add_directive(text; optional at) | remove_directive(matching) | replace_directive(matching, text) | add_comment(text; optional at). PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-.",
         "properties": {
@@ -370,6 +370,10 @@ Create a new LTspice schematic file in the project, optionally building it with 
         "type": "object"
       },
       "type": "array"
+    },
+    "netlist": {
+      "description": "A SPICE netlist to draw as a readable schematic: elements, `.model`\nand `.subckt` definitions and analysis directives, one per line. Use\nit to turn a netlist, a textbook circuit or a circuit read from an\nimage into a schematic. aispice places and wires every part and\nchecks that the drawing netlists back to exactly this circuit.",
+      "type": "string"
     }
   },
   "required": [
