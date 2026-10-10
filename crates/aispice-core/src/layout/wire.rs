@@ -17,7 +17,7 @@ use crate::schematic::{Flag, Symbol, Wire};
 
 /// Pins farther apart than this (in sheet units) are joined by labels rather
 /// than a long wire.
-const LABEL_DIST: i32 = 26 * GRID;
+const LABEL_DIST: i32 = 40 * GRID;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Wiring {
@@ -43,6 +43,8 @@ struct Ctx {
     flags: Vec<Flag>,
     /// Pins with the centre of their part, for working out label sides.
     pin_owners: Vec<(Point, Point)>,
+    /// Every pin and the way its wire leaves.
+    pin_dirs: Vec<(Point, Dir)>,
 }
 
 impl Ctx {
@@ -88,6 +90,18 @@ impl Ctx {
                 .any(|p| super::geom::on_segment(*p, w.a, w.b));
             if !own && segment_hits(w.a, w.b, &r) {
                 cost += 6.0;
+            }
+        }
+        // A flag crowding another pin, or sitting where that pin's wire has
+        // to leave, blocks it.
+        let near = r.inflate(14);
+        for &(pin, f) in &self.pin_dirs {
+            if own_path.first() == Some(&pin) {
+                continue;
+            }
+            let out = f.step(pin, 2 * GRID);
+            if near.contains(pin) || segment_hits(pin, out, &r.inflate(8)) {
+                cost += 20.0;
             }
         }
         cost
@@ -507,6 +521,7 @@ pub(crate) fn wire(c: &Circuit, placed: &[Placement]) -> Wiring {
         wires: Vec::new(),
         flags: Vec::new(),
         pin_owners,
+        pin_dirs: pins.iter().map(|p| (p.p, p.f)).collect(),
     };
 
     // Ground symbols and rail labels first: they sit right at their pins.

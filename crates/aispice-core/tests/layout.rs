@@ -2,12 +2,11 @@
 //! must produce a schematic that netlists back to the input, passes lint
 //! without errors, and reads cleanly by the quality metrics.
 //!
-//! Quality thresholds: a score of 90 or more means no wire through a part
+//! Quality threshold: a score of 90 or more means no wire through a part
 //! body, no overlapping parts, and at most a couple of minor blemishes (a
-//! crossing costs 5 points, text touching a wire 6, sprawl a few). Every
-//! circuit is held to that except the two-stage CMOS op-amp, the hardest
-//! topology in the set (eight MOSFETs, two mirrors, bulk pins drawn to
-//! ground), which is held to 60 and to the same zero hard defects.
+//! crossing costs 5 points, text touching a wire 6, sprawl a few). The
+//! circuits here score 94 to 100, so a regression in placement or routing
+//! shows up as a failure rather than a slightly worse drawing.
 
 use aispice_core::layout::{LayoutOptions, LayoutResult, compare_netlists, from_netlist};
 use aispice_core::lint::{Severity, lint};
@@ -88,7 +87,7 @@ corpus! {
     emitter_follower: 90.0,
     diff_pair_mirror: 90.0,
     two_stage_ideal_opamp: 90.0,
-    two_stage_cmos_opamp: 60.0,
+    two_stage_cmos_opamp: 90.0,
     inverting_amp: 90.0,
     noninverting_amp: 90.0,
     sallen_key_lowpass: 90.0,

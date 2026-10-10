@@ -176,7 +176,14 @@ pub(crate) fn windows(d: &Device, orient: Orient, flip_text: bool) -> Vec<Window
             })
             .collect();
     }
-    if !flips && !flip_text {
+    // A MOSFET with its bulk drawn has that pin on the side where the text
+    // goes; move the text out so the bulk's wire and flag fit between.
+    let bulk_room = if d.kind.transistor() && def.pins.len() == 4 {
+        56
+    } else {
+        0
+    };
+    if !flips && !flip_text && bulk_room == 0 {
         return Vec::new();
     }
     let centre = core_body(def)
@@ -187,7 +194,7 @@ pub(crate) fn windows(d: &Device, orient: Orient, flip_text: bool) -> Vec<Window
         .windows
         .iter()
         .map(|w| {
-            let mut at = orient.apply(w.at);
+            let mut at = orient.apply(w.at.offset(bulk_room, 0));
             let mut align = w.align.clone();
             if flip_text {
                 at.x = 2 * cx - at.x;

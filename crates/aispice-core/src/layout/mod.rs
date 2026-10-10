@@ -232,6 +232,20 @@ fn strategies(c: &circuit::Circuit, effort: u8) -> Vec<Strategy> {
             });
         }
     }
+    // Transistor circuits: current paths stood up as columns between the
+    // rails, the rest fitted around them.
+    let transistors = c.devices.iter().filter(|d| d.kind.transistor()).count();
+    if transistors >= 3 {
+        out.push(Strategy {
+            columns: true,
+            ..base.clone()
+        });
+        out.push(Strategy {
+            columns: true,
+            spread: 1,
+            ..base.clone()
+        });
+    }
     if effort >= 2 {
         // Flip active parts between their two natural orientations.
         let flippable: Vec<(usize, [crate::geometry::Orient; 2])> = c

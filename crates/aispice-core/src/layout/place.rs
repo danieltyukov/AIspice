@@ -54,6 +54,8 @@ pub(crate) struct Strategy {
     /// Start from this device instead of the input source: the core of the
     /// circuit first, its sources fitted around it afterwards.
     pub seed: Option<usize>,
+    /// Stand the rail-to-rail current paths up as columns first.
+    pub columns: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +102,8 @@ struct Placer<'a> {
     net_pins: Vec<Vec<PinAt>>,
     /// Planned wires per net, as straight segments.
     net_segs: Vec<Vec<(Point, Point)>>,
+    /// Devices placed by the column plan, which refinement leaves alone.
+    fixed: Vec<bool>,
 }
 
 /// Room a flag needs beside a pin: a ground symbol below it, or a rail label
@@ -312,6 +316,7 @@ impl<'a> Placer<'a> {
             texts: vec![Vec::new(); c.devices.len()],
             net_pins: vec![Vec::new(); c.nets.len()],
             net_segs: vec![Vec::new(); c.nets.len()],
+            fixed: vec![false; c.devices.len()],
         }
     }
 
@@ -381,6 +386,11 @@ impl<'a> Placer<'a> {
             let horizontal = s.0.y == s.1.y;
             let step = f.step(p, 2 * GRID);
             for t in [project(p, s), project(step, s), s.0, s.1] {
+                // A planned wire ending on a pin is entered along the pin's
+                // lead, which the pin itself already stands for.
+                if self.net_pins[net].iter().any(|q| q.p == t) {
+                    continue;
+                }
                 let interior = t != s.0 && t != s.1;
                 // Into the middle of a wire only at a right angle.
                 let arrive: Vec<Dir> = Dir::ALL
@@ -522,7 +532,7 @@ impl<'a> Placer<'a> {
             for d in self.order.clone() {
                 let has_signal = self.c.devices[d].nets().any(|n| self.c.is_signal(n));
                 let Some(old) = self.pos[d] else { continue };
-                if !has_signal {
+                if !has_signal || self.fixed[d] {
                     continue;
                 }
                 let old_shape = self.chosen[d];
@@ -675,7 +685,13 @@ impl<'a> Placer<'a> {
             );
             let both_signal = kinds.0 == NetKind::Signal && kinds.1 == NetKind::Signal;
             if both_signal && !horizontal && !self.c.feedback[d] && dev.kind != Kind::Source {
-                total += W_UPRIGHT_SERIES;
+                // Diodes stand upright in bridges and clamps, current flowing
+                // up toward the higher node; a light preference only.
+                total += if dev.kind == Kind::Diode {
+                    W_UPRIGHT_SERIES * 0.3
+                } else {
+                    W_UPRIGHT_SERIES
+                };
             }
             if self.c.feedback[d] {
                 // Above (or below) the parts it wraps.
@@ -994,10 +1010,445 @@ fn matched(a: &super::circuit::Device, b: &super::circuit::Device) -> bool {
         .any(|(x, y)| x.net == y.net && matches!(x.role, PinRole::Common | PinRole::Input))
 }
 
+/// A device standing in a current path between the rails, and the nets at
+/// its top and bottom.
+#[derive(Debug, Clone, Copy)]
+struct Stack {
+    dev: usize,
+    upper: usize,
+    lower: usize,
+    row: usize,
+}
+
+impl Placer<'_> {
+    /// The ends of a device's conduction path, upper first where the device
+    /// decides it: collector or drain over emitter or source for N types,
+    /// the other way round for P types. Two-terminal parts that carry
+    /// current (resistors, inductors, diodes, current sources) go either way.
+    fn channel(&self, d: usize) -> Option<(usize, usize, bool)> {
+        let dev = &self.c.devices[d];
+        let net = |role: PinRole| dev.pins.iter().find(|p| p.role == role).map(|p| p.net);
+        match dev.kind {
+            Kind::Bjt { p } | Kind::Fet { p } => {
+                let (out, common) = (net(PinRole::Output)?, net(PinRole::Common)?);
+                Some(if p {
+                    (common, out, true)
+                } else {
+                    (out, common, true)
+                })
+            }
+            Kind::Passive if !dev.symbol.eq_ignore_ascii_case("cap") => {
+                Some((dev.pins[0].net, dev.pins[1].net, false))
+            }
+            Kind::Diode => Some((dev.pins[0].net, dev.pins[1].net, false)),
+            Kind::Source if dev.symbol.eq_ignore_ascii_case("current") => {
+                Some((dev.pins[0].net, dev.pins[1].net, false))
+            }
+            _ => None,
+        }
+    }
+
+    /// The devices in current paths from a positive rail down to ground or
+    /// a negative rail, with the row each stands in counted from the top.
+    fn stacks(&self) -> Vec<Stack> {
+        let c = self.c;
+        let n = c.nets.len();
+        let top = |x: usize| matches!(c.nets[x].kind, NetKind::Rail { positive: true });
+        let bottom = |x: usize| {
+            matches!(
+                c.nets[x].kind,
+                NetKind::Ground | NetKind::Rail { positive: false }
+            )
+        };
+        let edges: Vec<(usize, usize, usize, bool)> = (0..c.devices.len())
+            .filter_map(|d| self.channel(d).map(|(a, b, fixed)| (d, a, b, fixed)))
+            .filter(|&(_, a, b, _)| a != b && !(top(a) && bottom(b)) && !(top(b) && bottom(a)))
+            .collect();
+        // Distance down from the positive rails and up from the bottom ones.
+        let walk = |from_top: bool| {
+            let mut dist = vec![usize::MAX; n];
+            for (x, d) in dist.iter_mut().enumerate() {
+                if (from_top && top(x)) || (!from_top && bottom(x)) {
+                    *d = 0;
+                }
+            }
+            for _ in 0..n {
+                let mut changed = false;
+                for &(_, a, b, fixed) in &edges {
+                    let pairs: &[(usize, usize)] = if fixed {
+                        if from_top { &[(a, b)] } else { &[(b, a)] }
+                    } else {
+                        &[(a, b), (b, a)]
+                    };
+                    for &(from, to) in pairs {
+                        if dist[from] != usize::MAX && c.is_signal(to) && dist[from] + 1 < dist[to]
+                        {
+                            dist[to] = dist[from] + 1;
+                            changed = true;
+                        }
+                    }
+                }
+                if !changed {
+                    break;
+                }
+            }
+            dist
+        };
+        let (dt, db) = (walk(true), walk(false));
+        let mut out = Vec::new();
+        for &(d, a, b, fixed) in &edges {
+            let (upper, lower) = if fixed || dt[a] < dt[b] || (dt[a] == dt[b] && db[a] > db[b]) {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            if dt[upper] == usize::MAX || db[lower] == usize::MAX {
+                continue;
+            }
+            out.push(Stack {
+                dev: d,
+                upper,
+                lower,
+                row: 0,
+            });
+        }
+        let rows = out
+            .iter()
+            .map(|s| dt[s.upper] + db[s.lower] + 1)
+            .max()
+            .unwrap_or(1);
+        for s in out.iter_mut() {
+            s.row = if dt[s.upper] == 0 {
+                0
+            } else if db[s.lower] == 0 {
+                rows - 1
+            } else {
+                dt[s.upper].min(rows - 1)
+            };
+        }
+        out
+    }
+
+    /// Stand the current paths up as columns: devices stacked between the
+    /// rails share a vertical axis, columns sharing nets sit side by side, a
+    /// differential pair's columns are adjacent and mirrored, a mirror's
+    /// shared gate faces its partner, and a tail source sits centred under
+    /// its pair. Everything else is placed around the columns afterwards.
+    fn place_columns(&mut self) {
+        let stacks = self.stacks();
+        let transistors = stacks
+            .iter()
+            .filter(|s| self.c.devices[s.dev].kind.transistor())
+            .count();
+        if transistors < 3 {
+            return;
+        }
+        let k = stacks.len();
+        // Join each device to the one directly below it when the net between
+        // them is a plain link; a net with several devices above and one
+        // below makes that one a tail, centred under them.
+        let mut parent: Vec<usize> = (0..k).collect();
+        fn find(p: &mut [usize], x: usize) -> usize {
+            let mut x = x;
+            while p[x] != x {
+                p[x] = p[p[x]];
+                x = p[x];
+            }
+            x
+        }
+        let mut tail: Vec<Option<Vec<usize>>> = vec![None; k];
+        for net in 0..self.c.nets.len() {
+            if !self.c.is_signal(net) {
+                continue;
+            }
+            let above: Vec<usize> = (0..k).filter(|&i| stacks[i].lower == net).collect();
+            let below: Vec<usize> = (0..k).filter(|&i| stacks[i].upper == net).collect();
+            match (above.len(), below.len()) {
+                (1, b) if b >= 1 => {
+                    let primary = below
+                        .iter()
+                        .copied()
+                        .find(|&i| self.c.devices[stacks[i].dev].kind.transistor())
+                        .unwrap_or(below[0]);
+                    let (x, y) = (find(&mut parent, above[0]), find(&mut parent, primary));
+                    parent[x] = y;
+                }
+                (a, 1) if a >= 2 => tail[below[0]] = Some(above.clone()),
+                _ => {}
+            }
+        }
+        let mut columns: Vec<Vec<usize>> = Vec::new();
+        let mut col_of = vec![usize::MAX; k];
+        for i in 0..k {
+            if tail[i].is_some() {
+                continue;
+            }
+            let r = find(&mut parent, i);
+            let at = match (0..columns.len()).find(|&c| find(&mut parent, columns[c][0]) == r) {
+                Some(c) => c,
+                None => {
+                    columns.push(Vec::new());
+                    columns.len() - 1
+                }
+            };
+            columns[at].push(i);
+            col_of[i] = at;
+        }
+        let m = columns.len();
+        if !(2..=7).contains(&m) {
+            return;
+        }
+        // Order the columns: those sharing nets close together, matched
+        // pairs adjacent, the input side on the left. Few enough to try every
+        // order.
+        let nets_of = |col: &Vec<usize>| -> Vec<usize> {
+            col.iter()
+                .flat_map(|&i| self.c.devices[stacks[i].dev].nets())
+                .filter(|&n| self.c.is_signal(n))
+                .collect()
+        };
+        let col_nets: Vec<Vec<usize>> = columns.iter().map(nets_of).collect();
+        let affinity = |a: usize, b: usize| -> usize {
+            let mut shared: Vec<usize> = col_nets[a]
+                .iter()
+                .copied()
+                .filter(|n| col_nets[b].contains(n))
+                .collect();
+            shared.sort();
+            shared.dedup();
+            shared.len()
+        };
+        let key: Vec<u32> = columns
+            .iter()
+            .map(|col| {
+                col.iter()
+                    .flat_map(|&i| self.c.devices[stacks[i].dev].pins.iter())
+                    .filter(|p| p.role == PinRole::Input)
+                    .filter_map(|p| self.c.nets[p.net].depth)
+                    .min()
+                    .unwrap_or(u32::MAX / 4)
+            })
+            .collect();
+        let pair = |a: usize, b: usize| -> bool {
+            columns[a].iter().any(|&i| {
+                columns[b].iter().any(|&j| {
+                    let (x, y) = (
+                        &self.c.devices[stacks[i].dev],
+                        &self.c.devices[stacks[j].dev],
+                    );
+                    x.kind == y.kind
+                        && x.kind.transistor()
+                        && stacks[i].row == stacks[j].row
+                        && x.pins
+                            .iter()
+                            .zip(&y.pins)
+                            .any(|(p, q)| p.net == q.net && p.role == PinRole::Common)
+                })
+            })
+        };
+        let mut best: Option<(f64, Vec<usize>)> = None;
+        let mut perm: Vec<usize> = (0..m).collect();
+        permutations(&mut perm, 0, &mut |order: &[usize]| {
+            let pos = |c: usize| order.iter().position(|&o| o == c).expect("in order") as f64;
+            let mut cost = 0.0;
+            for a in 0..m {
+                for b in a + 1..m {
+                    let d = (pos(a) - pos(b)).abs();
+                    cost += affinity(a, b) as f64 * d;
+                    if pair(a, b) && d > 1.0 {
+                        cost += 100.0;
+                    }
+                    let (ka, kb) = (key[a], key[b]);
+                    if (ka < kb && pos(a) > pos(b)) || (kb < ka && pos(b) > pos(a)) {
+                        cost += 0.01;
+                    }
+                }
+            }
+            if best.as_ref().is_none_or(|(c, _)| cost < *c) {
+                best = Some((cost, order.to_vec()));
+            }
+        });
+        let Some((_, order)) = best else { return };
+        let rank_of = |c: usize| order.iter().position(|&o| o == c).expect("in order");
+
+        // Which way each device's control pin faces.
+        let col_x = |i: usize| -> f64 {
+            match &tail[i] {
+                Some(parents) => {
+                    parents
+                        .iter()
+                        .map(|&p| rank_of(col_of[p]) as f64)
+                        .sum::<f64>()
+                        / parents.len() as f64
+                }
+                None => rank_of(col_of[i]) as f64,
+            }
+        };
+        let mut facing_left = vec![true; k];
+        for i in 0..k {
+            let dev = &self.c.devices[stacks[i].dev];
+            let Some(g) = dev.pins.iter().position(|p| p.role == PinRole::Input) else {
+                continue;
+            };
+            let me = col_x(i);
+            let mut decided = None;
+            for j in 0..k {
+                let other = &self.c.devices[stacks[j].dev];
+                if i == j || other.kind != dev.kind || stacks[i].row != stacks[j].row {
+                    continue;
+                }
+                let them = col_x(j);
+                if (them - me).abs() < 0.1 {
+                    continue;
+                }
+                let shared_gate = other.pins.get(g).is_some_and(|q| q.net == dev.pins[g].net);
+                let shared_common = dev.pins.iter().zip(&other.pins).any(|(p, q)| {
+                    p.net == q.net && p.role == PinRole::Common && self.c.is_signal(p.net)
+                });
+                if shared_gate {
+                    decided = Some(them < me);
+                } else if shared_common {
+                    decided = Some(them > me);
+                }
+            }
+            facing_left[i] = decided.unwrap_or_else(|| {
+                let gate = dev.pins[g].net;
+                let xs: Vec<f64> = (0..k)
+                    .filter(|&j| j != i && self.c.devices[stacks[j].dev].nets().any(|n| n == gate))
+                    .map(col_x)
+                    .collect();
+                xs.is_empty() || xs.iter().sum::<f64>() / (xs.len() as f64) <= me
+            });
+        }
+
+        // Shapes, axes and extents.
+        let mut shape_of = vec![0usize; k];
+        let mut axis = vec![0i32; k];
+        let mut span = vec![(0i32, 0i32); k];
+        let mut top_pin = vec![0i32; k];
+        let mut height = vec![0i32; k];
+        for i in 0..k {
+            let st = stacks[i];
+            let dev = &self.c.devices[st.dev];
+            let want = |o: Orient| -> bool {
+                let s = self.shapes[st.dev].iter().find(|s| s.orient == o);
+                let Some(s) = s else { return false };
+                let up = dev.pins.iter().position(|p| p.net == st.upper);
+                let low = dev.pins.iter().position(|p| p.net == st.lower);
+                match (up, low) {
+                    (Some(u), Some(l)) => {
+                        s.pins[u].0.y < s.pins[l].0.y && s.pins[u].0.x == s.pins[l].0.x
+                    }
+                    _ => false,
+                }
+            };
+            let orients: Vec<Orient> = if dev.kind.transistor() {
+                let p = matches!(dev.kind, Kind::Bjt { p: true } | Kind::Fet { p: true });
+                match (p, facing_left[i]) {
+                    (false, true) => vec![Orient::R0],
+                    (false, false) => vec![Orient::M0],
+                    (true, true) => vec![Orient::M180],
+                    (true, false) => vec![Orient::R180],
+                }
+            } else {
+                vec![Orient::R0, Orient::M180]
+            };
+            let Some(o) = orients.into_iter().find(|&o| want(o)) else {
+                return;
+            };
+            let Some(si) = self.shapes[st.dev]
+                .iter()
+                .position(|s| s.orient == o && !s.flip_text)
+            else {
+                return;
+            };
+            let s = &self.shapes[st.dev][si];
+            let u = dev
+                .pins
+                .iter()
+                .position(|p| p.net == st.upper)
+                .expect("upper pin");
+            let l = dev
+                .pins
+                .iter()
+                .position(|p| p.net == st.lower)
+                .expect("lower pin");
+            shape_of[i] = si;
+            axis[i] = s.pins[u].0.x;
+            span[i] = (axis[i] - s.zone.min.x, s.zone.max.x - axis[i]);
+            top_pin[i] = s.pins[u].0.y;
+            height[i] = s.pins[l].0.y - s.pins[u].0.y;
+        }
+        // Column positions from left to right, rows from the top.
+        // Room for text drawn wider than estimated: LTspice keeps a minimum
+        // font size when zoomed out.
+        let gap = 6 * GRID + self.st.spread * GRID;
+        let mut col_axis = vec![0i32; m];
+        let mut x = 0;
+        for (r, &c) in order.iter().enumerate() {
+            let left = columns[c].iter().map(|&i| span[i].0).max().unwrap_or(0);
+            let right = columns[c].iter().map(|&i| span[i].1).max().unwrap_or(0);
+            if r > 0 {
+                x += left;
+            }
+            col_axis[c] = snap(x);
+            x = col_axis[c] + right + gap;
+        }
+        let rows = stacks.iter().map(|s| s.row).max().unwrap_or(0) + 1;
+        let mut row_y = vec![0i32; rows];
+        for r in 1..rows {
+            let tallest = (0..k)
+                .filter(|&i| stacks[i].row == r - 1)
+                .map(|i| height[i])
+                .max()
+                .unwrap_or(96);
+            row_y[r] = row_y[r - 1] + tallest + 4 * GRID;
+        }
+        // Commit columns first, then the tails between them.
+        let mut todo: Vec<usize> = (0..k).filter(|&i| tail[i].is_none()).collect();
+        todo.extend((0..k).filter(|&i| tail[i].is_some()));
+        for i in todo {
+            let st = stacks[i];
+            let ax = match &tail[i] {
+                Some(parents) => snap(
+                    parents.iter().map(|&p| col_axis[col_of[p]]).sum::<i32>()
+                        / parents.len() as i32,
+                ),
+                None => col_axis[col_of[i]],
+            };
+            let base = Point::new(ax - axis[i], row_y[st.row] - top_pin[i]);
+            let spot = (0..12)
+                .flat_map(|k| [(0, k), (k, 0), (-k, 0)])
+                .map(|(dx, dy)| base.offset(dx * GRID, dy * GRID))
+                .find(|&at| self.fits(translate(self.shapes[st.dev][shape_of[i]].zone, at)));
+            if let Some(at) = spot {
+                self.commit(st.dev, shape_of[i], at);
+                self.fixed[st.dev] = true;
+            }
+        }
+    }
+}
+
+/// Call `f` with every ordering of `items[from..]`.
+fn permutations(items: &mut [usize], from: usize, f: &mut dyn FnMut(&[usize])) {
+    if from == items.len() {
+        f(items);
+        return;
+    }
+    for i in from..items.len() {
+        items.swap(from, i);
+        permutations(items, from + 1, f);
+        items.swap(from, i);
+    }
+}
+
 /// Place every device. Returns one placement per device and the total
 /// drawing-convention cost of the result, for comparing strategies.
 pub(crate) fn place(c: &Circuit, st: &Strategy) -> (Vec<Placement>, f64) {
     let mut p = Placer::new(c, st);
+    if st.columns {
+        p.place_columns();
+    }
     while let Some(d) = p.next() {
         let anchored = c.devices[d]
             .nets()
