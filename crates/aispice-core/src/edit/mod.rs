@@ -715,24 +715,26 @@ fn connect_to_net(
         n.name.eq_ignore_ascii_case(&label)
             || n.labels.iter().any(|l| l.eq_ignore_ascii_case(&label))
     });
-    if !ground && name_is_new
+    if !ground
+        && name_is_new
         && let Some(current) = conn
             .net_of(&p.inst, &p.pin)
             .filter(|n| n.labelled && !n.is_ground())
-        {
-            let old: Vec<String> = current.labels.clone();
-            for item in sch.items.iter_mut() {
-                if let Item::Flag(f) = item
-                    && old.iter().any(|l| l.eq_ignore_ascii_case(&f.label)) {
-                        f.label = label.clone();
-                    }
+    {
+        let old: Vec<String> = current.labels.clone();
+        for item in sch.items.iter_mut() {
+            if let Item::Flag(f) = item
+                && old.iter().any(|l| l.eq_ignore_ascii_case(&f.label))
+            {
+                f.label = label.clone();
             }
-            report.applied.push(format!(
-                "Named the net of {pin} `{label}` (was {})",
-                old.join(", ")
-            ));
-            return Ok(());
         }
+        report.applied.push(format!(
+            "Named the net of {pin} `{label}` (was {})",
+            old.join(", ")
+        ));
+        return Ok(());
+    }
     // If the net exists with pins, try a wire to its nearest pin first.
     if let Some(target) = conn.net(&label).filter(|n| !n.pins.is_empty() && !ground) {
         let nearest = target

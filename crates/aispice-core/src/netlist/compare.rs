@@ -17,6 +17,7 @@ fn auto_named(n: &str) -> bool {
         && up.len() == 4
         && up[1..].bytes().all(|b| b.is_ascii_digit())
         || up.starts_with("NC_")
+        || up.starts_with("MP_")
 }
 
 fn norm_value(s: &str) -> String {
@@ -35,21 +36,23 @@ fn norm_name(s: &str) -> String {
 /// as sets, ignoring `.lib` paths, `.backanno` and comments.
 pub fn compare(a: &Netlist, b: &Netlist) -> Result<(), Vec<Mismatch>> {
     let mut problems = Vec::new();
-    let eb: HashMap<String, &super::Element> =
-        b.elements().map(|e| (norm_name(&e.name), e)).collect();
+    // Elements are matched by name, in order, so a deck that repeats a name
+    // (two K1 couplings, say) still compares element by element.
+    let mut eb: HashMap<String, std::collections::VecDeque<&super::Element>> = HashMap::new();
+    for e in b.elements() {
+        eb.entry(norm_name(&e.name)).or_default().push_back(e);
+    }
     let mut map_ab: HashMap<String, String> = HashMap::new();
     let mut map_ba: HashMap<String, String> = HashMap::new();
-    let mut seen = 0;
     for ea in a.elements() {
         let key = norm_name(&ea.name);
-        let Some(ebx) = eb.get(&key) else {
+        let Some(ebx) = eb.get_mut(&key).and_then(|q| q.pop_front()) else {
             problems.push(Mismatch(format!(
                 "{} is only in the first netlist",
                 ea.name
             )));
             continue;
         };
-        seen += 1;
         if norm_value(&ea.rest) != norm_value(&ebx.rest) {
             problems.push(Mismatch(format!(
                 "{}: `{}` vs `{}`",
@@ -67,9 +70,7 @@ pub fn compare(a: &Netlist, b: &Netlist) -> Result<(), Vec<Mismatch>> {
         }
         for (na, nb) in ea.nodes.iter().zip(&ebx.nodes) {
             let (ua, ub) = (na.to_ascii_uppercase(), nb.to_ascii_uppercase());
-            let named_a = !auto_named(&ua);
-            let named_b = !auto_named(&ub);
-            if named_a || named_b {
+            if !auto_named(&ua) || !auto_named(&ub) {
                 if ua != ub {
                     problems.push(Mismatch(format!("{}: node {na} vs {nb}", ea.name)));
                 }
@@ -88,17 +89,12 @@ pub fn compare(a: &Netlist, b: &Netlist) -> Result<(), Vec<Mismatch>> {
             }
         }
     }
-    if seen != eb.len() {
-        for eb_el in b.elements() {
-            if !a
-                .elements()
-                .any(|e| norm_name(&e.name) == norm_name(&eb_el.name))
-            {
-                problems.push(Mismatch(format!(
-                    "{} is only in the second netlist",
-                    eb_el.name
-                )));
-            }
+    for rest in eb.values() {
+        for e in rest {
+            problems.push(Mismatch(format!(
+                "{} is only in the second netlist",
+                e.name
+            )));
         }
     }
     let directives = |n: &Netlist| -> Vec<String> {

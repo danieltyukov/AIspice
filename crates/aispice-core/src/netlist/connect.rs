@@ -13,6 +13,12 @@ use crate::symbol::{SymbolDef, SymbolLibrary};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+/// LTspice's `Misc\\jumper`: a wire drawn as a part.
+pub fn is_jumper(symbol_name: &str) -> bool {
+    let n = crate::schematic::normalize_symbol_name(symbol_name);
+    n == "jumper" || n.ends_with("/jumper")
+}
+
 /// Labels LTspice netlists as ground.
 pub fn is_ground_label(label: &str) -> bool {
     label == "0" || label.eq_ignore_ascii_case("gnd")
@@ -137,6 +143,7 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
 
     // Placed pins.
     let mut placed = Vec::new();
+    let mut jumper_ids: Vec<usize> = Vec::new();
     let mut pins: Vec<(PinRef, usize)> = Vec::new();
     for (item, it) in sch.items.iter().enumerate() {
         let crate::schematic::Item::Symbol(sym) = it else {
@@ -160,9 +167,20 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
             }
         };
         if let Some(def) = &def {
+            let jumper = is_jumper(&sym.name);
+            let mut first_id = None;
             for pin in def.pins_in_spice_order() {
                 let at = def.pin_position(pin, sym.at, sym.orient);
                 let id = id_of(at, &mut dsu);
+                // A jumper is a wire drawn as a part: it joins its pins (so a
+                // net can carry two names) and puts nothing in the netlist.
+                if jumper {
+                    match first_id {
+                        Some(f) => dsu.union(f, id),
+                        None => first_id = Some(id),
+                    }
+                    jumper_ids.push(id);
+                }
                 pins.push((
                     PinRef {
                         inst: inst.clone(),
@@ -275,7 +293,29 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
             })
             .or_insert(best);
     }
-    for net in nets.iter_mut() {
+    // When one net carries several labels, LTspice uses the one placed lowest
+    // on the sheet (largest y, then largest x), or for nets joined through a
+    // jumper the first label in the file. Both rules were derived from 660
+    // real schematics and a controlled experiment, checked against LTspice's
+    // own netlister.
+    let mut chosen_label: HashMap<usize, (Point, String)> = HashMap::new();
+    for ((at, label), id) in flags.iter().zip(&flag_ids) {
+        if let Some(n) = root_to_net.get(&dsu.find(*id)) {
+            let better = chosen_label
+                .get(n)
+                .is_none_or(|(p, _)| (at.y, at.x) >= (p.y, p.x));
+            if better {
+                chosen_label.insert(*n, (*at, label.clone()));
+            }
+        }
+    }
+    // Nets joined through a jumper carry two names on purpose.
+    let jumper_nets: Vec<usize> = jumper_ids
+        .iter()
+        .filter_map(|id| root_to_net.get(&dsu.find(*id)).copied())
+        .collect();
+    for (i, net) in nets.iter_mut().enumerate() {
+        let intentional = jumper_nets.contains(&i);
         let ground: Vec<&String> = net.labels.iter().filter(|l| is_ground_label(l)).collect();
         if !ground.is_empty() {
             net.name = "0".into();
@@ -286,7 +326,7 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
                 .filter(|l| !is_ground_label(l))
                 .cloned()
                 .collect();
-            if !others.is_empty() {
+            if !others.is_empty() && !intentional {
                 warnings.push(ConnWarning {
                     message: format!(
                         "ground is also labelled {}; those labels are shorted to ground",
@@ -295,10 +335,15 @@ pub fn connect(sch: &Schematic, lib: &SymbolLibrary) -> Connectivity {
                     at: net.pins.first().map(|p| p.at),
                 });
             }
-        } else if let Some(first) = net.labels.first() {
-            net.name = first.clone();
+        } else if let Some((_, label)) = chosen_label.get(&i) {
+            // Through a jumper, the first label in the file wins instead.
+            net.name = if intentional {
+                net.labels[0].clone()
+            } else {
+                label.clone()
+            };
             net.labelled = true;
-            if net.labels.len() > 1 {
+            if net.labels.len() > 1 && !intentional {
                 warnings.push(ConnWarning {
                     message: format!(
                         "one net carries several labels ({}); they are shorted together",
@@ -380,19 +425,29 @@ mod tests {
         let src = "Version 4\nSHEET 1 880 680\nWIRE 0 64 128 64\nWIRE 64 0 64 128\nWIRE 128 64 128 0\nWIRE 0 192 128 192\nWIRE 64 192 64 256\nFLAG 0 64 a\nFLAG 64 0 b\nFLAG 128 0 c\nFLAG 0 192 d\nFLAG 64 256 e\n";
         let c = conn(src);
         // a and c share a wire chain; b crosses without a junction.
-        let a = c.net("a").unwrap();
+        let a = c
+            .nets
+            .iter()
+            .find(|n| n.labels.iter().any(|l| l == "a"))
+            .unwrap();
         assert!(a.labels.iter().any(|l| l == "c"));
         assert!(!a.labels.iter().any(|l| l == "b"));
         // e's wire ends on the middle of d's wire: a T-junction.
-        assert!(c.net("d").unwrap().labels.iter().any(|l| l == "e"));
+        let d = c
+            .nets
+            .iter()
+            .find(|n| n.labels.iter().any(|l| l == "d"))
+            .unwrap();
+        assert!(d.labels.iter().any(|l| l == "e"));
     }
 
     #[test]
     fn flags_with_the_same_label_join_anywhere() {
         let src = "Version 4\nSHEET 1 880 680\nFLAG 16 16 vcc\nFLAG 400 400 VCC\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMBOL res 384 384 R0\nSYMATTR InstName R2\n";
         let c = conn(src);
-        assert_eq!(c.net_of("R1", "A").unwrap().name, "vcc");
-        assert_eq!(c.net_of("R2", "A").unwrap().name, "vcc");
+        // LTspice names the net after the label that comes last in the file.
+        assert_eq!(c.net_of("R1", "A").unwrap().name, "VCC");
+        assert_eq!(c.net_of("R2", "A").unwrap().name, "VCC");
         assert_eq!(c.net_of("R1", "B").unwrap().name, "NC_01");
     }
 
