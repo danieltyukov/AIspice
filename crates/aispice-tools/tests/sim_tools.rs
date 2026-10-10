@@ -202,3 +202,36 @@ async fn declined_approval_blocks_every_write() {
     assert!(text[1].contains("declined"), "{}", text[1]);
     assert!(text[3].contains("declined"), "{}", text[3]);
 }
+
+/// The desktop app shows a spec's value with its unit and the margin as the
+/// distance to the nearest limit in that unit.
+#[test]
+fn spec_report_in_the_app_shape() {
+    use aispice_sim::spec::{SpecReport, SpecRow};
+    let row = |name: &str, value: f64, min: Option<f64>, max: Option<f64>, pass: bool| SpecRow {
+        name: name.into(),
+        value: Some(value),
+        unit: "Hz".into(),
+        min,
+        max,
+        target: None,
+        pass,
+        margin: None,
+        worst_step: None,
+        note: None,
+        display: "a sentence for people".into(),
+    };
+    let report = SpecReport {
+        rows: vec![
+            row("bw", 1591.0, Some(1500.0), Some(1700.0), true),
+            row("low", 900.0, Some(1000.0), None, false),
+        ],
+        all_pass: false,
+        summary: "1 of 2 specs fail".into(),
+    };
+    let ui = aispice_tools::tools::ui_spec_report(&report);
+    assert_eq!(ui["rows"][0]["display"], "1.591 kHz");
+    assert_eq!(ui["rows"][0]["margin"], 91.0);
+    assert_eq!(ui["rows"][1]["margin"], -100.0);
+    assert_eq!(ui["all_pass"], false);
+}

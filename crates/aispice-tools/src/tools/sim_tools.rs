@@ -88,6 +88,38 @@ pub fn specs_file(circuit: &str) -> String {
     }
 }
 
+/// A spec report in the shape the desktop app renders (`SpecReport` in
+/// `app/src/ipc/types.ts`): the value with its unit for display, and the
+/// margin as the distance to the nearest limit in the same unit, negative
+/// when the spec fails.
+pub fn ui_spec_report(report: &SpecReport) -> Value {
+    let rows: Vec<Value> = report
+        .rows
+        .iter()
+        .map(|r| {
+            let margin = r.value.and_then(|v| {
+                let limits = [r.min.map(|min| v - min), r.max.map(|max| max - v)];
+                let nearest = limits.into_iter().flatten().reduce(f64::min);
+                nearest.or_else(|| r.target.map(|t| -(v - t).abs()))
+            });
+            let display = r.value.map_or_else(
+                || "n/a".into(),
+                |v| aispice_sim::measure::spaced(v, &r.unit),
+            );
+            json!({
+                "name": r.name,
+                "value": r.value,
+                "min": r.min,
+                "max": r.max,
+                "pass": r.pass,
+                "margin": margin,
+                "display": display,
+            })
+        })
+        .collect();
+    json!({"rows": rows, "all_pass": report.all_pass, "summary": report.summary})
+}
+
 /// The structured run payload the desktop app renders (`RunView`).
 pub fn run_view(run: &StoredRun, measured: &[MeasureResult]) -> Value {
     let datasets: Vec<Value> = run
@@ -116,7 +148,7 @@ pub fn run_view(run: &StoredRun, measured: &[MeasureResult]) -> Value {
             json!({"name": m.name, "value": m.value, "unit": "", "display": display, "note": m.detail})
         })
         .collect();
-    measurements.extend(measured.iter().map(|m| json!({"name": m.name, "value": m.value, "unit": m.unit, "display": m.display(), "note": m.note})));
+    measurements.extend(measured.iter().map(|m| json!({"name": m.name, "value": m.value, "unit": m.unit, "display": m.value_display(), "note": m.note})));
     json!({
         "run_id": run.id,
         "circuit": run.circuit,
@@ -405,7 +437,7 @@ impl Tool for MeasureTool {
         for m in &measured {
             t.push_str(&format!("  {}\n", m.display()));
         }
-        let data: Vec<Value> = measured.iter().map(|m| json!({"name": m.name, "value": m.value, "unit": m.unit, "display": m.display(), "note": m.note})).collect();
+        let data: Vec<Value> = measured.iter().map(|m| json!({"name": m.name, "value": m.value, "unit": m.unit, "display": m.value_display(), "note": m.note})).collect();
         ToolOutput::text(t).with_data(json!({"kind": "measure", "measurements": data}))
     }
 }
@@ -491,7 +523,7 @@ impl Tool for CheckSpecs {
             run.simulator.name(),
             spec_text(&report)
         );
-        ToolOutput::text(t).with_data(json!({"kind": "specs", "report": report}))
+        ToolOutput::text(t).with_data(json!({"kind": "specs", "report": ui_spec_report(&report)}))
     }
 }
 
@@ -1148,6 +1180,6 @@ impl Tool for Optimize {
         if let Some(r) = &final_report {
             t.push_str(&spec_text(r));
         }
-        ToolOutput::text(t).with_data(json!({"kind": "optimize", "best": best, "evaluations": result.evaluations, "report": final_report}))
+        ToolOutput::text(t).with_data(json!({"kind": "optimize", "best": best, "evaluations": result.evaluations, "report": final_report.as_ref().map(ui_spec_report)}))
     }
 }

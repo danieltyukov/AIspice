@@ -506,6 +506,32 @@ impl MeasureResult {
 
     /// A short line for people: `bw = 1.592kHz`, `vmax = 1.163V at 3.6ms`,
     /// `rise = n/a (never crosses the 90% level)`.
+    /// The value alone, for a table beside the name: `1.591 kHz`, or one
+    /// value per step of a swept run.
+    pub fn value_display(&self) -> String {
+        if self.per_step.len() > 1 {
+            return self
+                .per_step
+                .iter()
+                .map(|s| {
+                    let v = s
+                        .value
+                        .map_or_else(|| "n/a".into(), |v| spaced(v, &self.unit));
+                    if s.label.is_empty() {
+                        v
+                    } else {
+                        format!("{v} ({})", s.label)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+        }
+        match self.value {
+            Some(v) => spaced(v, &self.unit),
+            None => "n/a".into(),
+        }
+    }
+
     pub fn display(&self) -> String {
         if self.per_step.len() > 1 {
             let parts: Vec<String> = self
@@ -557,6 +583,24 @@ impl fmt::Display for MeasureResult {
 
 /// Format a value for people. Decibels, percent and degrees get plain
 /// decimals, since `500mdB` helps nobody; everything else gets an SI suffix.
+/// `human` with a space before the unit and `µ` for micro, for tables that
+/// show the value beside its name: `1.591 kHz`, `-3.01 dB`.
+pub fn spaced(v: f64, unit: &str) -> String {
+    if !v.is_finite() || unit.is_empty() {
+        return human(v, unit);
+    }
+    if matches!(unit, "dB" | "%" | "°") {
+        return format!("{} {unit}", plain(v));
+    }
+    let text = units::format(v).replace("Meg", "M");
+    let split = text
+        .find(|c: char| c.is_ascii_alphabetic())
+        .unwrap_or(text.len());
+    let prefix = &text[split..];
+    let prefix = if prefix == "u" { "µ" } else { prefix };
+    format!("{} {prefix}{unit}", &text[..split])
+}
+
 pub fn human(v: f64, unit: &str) -> String {
     if !v.is_finite() {
         return format!("{v}{unit}");
@@ -3175,5 +3219,15 @@ mod tests {
         assert_eq!(human(2.2e6, "Hz"), "2.2MHz");
         assert_eq!(human(1e-3, "s"), "1ms");
         assert_eq!(human(-0.00001, "dB"), "-0.00001dB");
+    }
+
+    #[test]
+    fn spaced_formatting() {
+        assert_eq!(spaced(1591.0, "Hz"), "1.591 kHz");
+        assert_eq!(spaced(2.2e6, "Hz"), "2.2 MHz");
+        assert_eq!(spaced(4.7e-6, "s"), "4.7 \u{b5}s");
+        assert_eq!(spaced(3.3, "V"), "3.3 V");
+        assert_eq!(spaced(-3.0103, "dB"), "-3.01 dB");
+        assert_eq!(spaced(12.5, ""), "12.5");
     }
 }

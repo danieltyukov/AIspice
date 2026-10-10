@@ -1,47 +1,81 @@
-mod ai;
-mod commands;
-mod formats;
-mod state;
+//! The aispice desktop app: a thin Tauri shell over aispice-tools, so the
+//! app, the CLI and the MCP server behave the same.
 
-use state::AppState;
+mod bridge;
+mod commands;
+mod ltspice;
+mod sessions;
+mod settings;
+mod state;
+mod watch;
+mod wave;
+
+use serde_json::json;
+use std::sync::Arc;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = AppState::new();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .manage(app_state)
+        .manage(state::AppState::new())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let st = app.state::<state::AppState>();
+            let emit_handle = handle.clone();
+            let ws_for_hook = st.ws.clone();
+            st.ws.set_hooks(aispice_tools::Hooks {
+                approver: Some(Arc::new(bridge::UiApprover {
+                    app: handle.clone(),
+                })),
+                after_save: Some(Arc::new(move |path: &std::path::Path| {
+                    let rel = ws_for_hook
+                        .project()
+                        .map(|p| p.relative(path))
+                        .unwrap_or_else(|_| path.display().to_string());
+                    let _ = emit_handle.emit(
+                        commands::EVENT,
+                        json!({"type": "circuit_changed", "path": rel, "external": false}),
+                    );
+                    let st = emit_handle.state::<state::AppState>();
+                    let reload = st.prefs.read().map(|p| p.reload_ltspice).unwrap_or(false);
+                    if reload && ltspice::is_running() {
+                        let configured = st.config.read().ok().and_then(|c| c.ltspice_path.clone());
+                        let _ = ltspice::open(path, configured.as_deref());
+                    }
+                })),
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            // File I/O
-            commands::files::set_working_directory,
-            commands::files::set_api_key,
-            commands::files::get_api_keys,
-            commands::files::remove_api_key,
-            commands::files::has_api_key,
-            commands::files::list_circuit_files,
-            commands::files::read_circuit_file,
-            commands::files::parse_circuit,
-            // AI chat
-            commands::chat::send_chat_message_stream,
-            // Chat history
-            commands::history::list_chat_sessions,
-            commands::history::load_chat_session,
-            commands::history::save_chat_session,
-            commands::history::delete_chat_session,
-            // Simulation
-            commands::simulation::check_ngspice,
-            commands::simulation::run_simulation,
-            commands::simulation::parse_waveform_csv,
-            // Export
-            commands::export::export_schematic,
-            // LTspice integration
-            commands::ltspice::detect_ltspice,
-            commands::ltspice::reload_ltspice,
-            commands::ltspice::run_ltspice_batch,
-            commands::ltspice::read_simulation_log,
+            commands::doctor,
+            commands::open_project,
+            commands::recent_projects,
+            commands::list_circuits,
+            commands::read_circuit,
+            commands::new_circuit,
+            commands::simulate,
+            commands::waveform,
+            commands::check_specs,
+            commands::history,
+            commands::undo,
+            commands::redo,
+            commands::restore,
+            commands::open_in_ltspice,
+            commands::sessions,
+            commands::load_session,
+            commands::new_session,
+            commands::delete_session,
+            bridge::send,
+            commands::cancel,
+            commands::approve,
+            commands::settings,
+            commands::save_settings,
+            commands::key_status,
+            commands::set_key,
+            commands::remove_key,
+            commands::models,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running AIspice");
+        .expect("error while running aispice");
 }

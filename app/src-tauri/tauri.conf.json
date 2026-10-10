@@ -1,7 +1,8 @@
 {
-  "productName": "AIspice",
-  "version": "0.1.0",
-  "identifier": "com.aispice.app",
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "aispice",
+  "version": "0.2.0",
+  "identifier": "io.github.danieltyukov.aispice",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -11,17 +12,38 @@
   "app": {
     "windows": [
       {
-        "title": "AIspice",
-        "width": 1200,
-        "height": 800,
+        "label": "main",
+        "title": "aispice",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
         "center": true,
-        "resizable": true,
-        "minWidth": 800,
-        "minHeight": 600
+        "resizable": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "dangerousDisableAssetCspModification": false,
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "AI agent for SPICE circuit design",
+    "longDescription": "aispice edits LTspice schematics, simulates them with ngspice, LTspice or Xyce, and checks the results against your specs.",
+    "copyright": "Copyright (c) 2026 Daniel Tyukov. MIT License.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": { "depends": [] }
     }
   }
 }

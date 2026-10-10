@@ -182,9 +182,11 @@ impl Tool for EditSchematic {
             );
         }
         blocking(move || {
-            let snapshot = p
-                .save(&input.circuit, &after, &summary)
+            // The card's undo restores the version before this edit.
+            let (before_snapshot, after_snapshot) = p
+                .save_tracked(&input.circuit, &after, &summary)
                 .map_err(|e| e.to_string())?;
+            let snapshot = before_snapshot.unwrap_or(after_snapshot);
             if let Ok(path) = p.resolve(&input.circuit) {
                 ws.after_save(&path);
             }

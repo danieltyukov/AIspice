@@ -376,6 +376,17 @@ impl Project {
     /// Save a schematic, recording the previous and new states. Returns the
     /// new snapshot id.
     pub fn save(&self, rel: &str, sch: &Schematic, summary: &str) -> Result<String, ProjectError> {
+        self.save_tracked(rel, sch, summary).map(|(_, after)| after)
+    }
+
+    /// Save and return the snapshot ids before and after, so a front end can
+    /// offer "undo this edit" by restoring the first.
+    pub fn save_tracked(
+        &self,
+        rel: &str,
+        sch: &Schematic,
+        summary: &str,
+    ) -> Result<(Option<String>, String), ProjectError> {
         let _guard = self
             .write_lock
             .lock()
@@ -383,11 +394,12 @@ impl Project {
         let path = self.resolve(rel)?;
         let mut idx = self.read_index(rel);
         self.capture_external(rel, &mut idx)?;
+        let before = idx.snapshots.get(idx.current).map(|s| s.id.clone());
         let bytes = schematic::write_bytes(sch);
         atomic_write(&path, &bytes)?;
         let id = self.push_snapshot(rel, &mut idx, &bytes, summary)?;
         self.write_index(rel, &idx)?;
-        Ok(id)
+        Ok((before, id))
     }
 
     /// Create a new, empty schematic file. Refuses to overwrite.

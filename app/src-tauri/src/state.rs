@@ -1,89 +1,48 @@
+//! Everything the desktop backend keeps between commands.
+
+use crate::settings::AppPrefs;
+use crate::watch::ProjectWatcher;
+use aispice_agent::{Config, KeyStore};
+use aispice_tools::Workspace;
 use std::collections::HashMap;
-use std::sync::Mutex;
-
-/// Path to the persistent config file.
-fn config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    std::path::Path::new(&home)
-        .join(".config")
-        .join("aispice")
-        .join("config.json")
-}
-
-/// Persisted configuration (stored as JSON).
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-struct PersistedConfig {
-    #[serde(default)]
-    api_keys: HashMap<String, String>,
-}
+use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 pub struct AppState {
-    pub working_directory: Mutex<Option<String>>,
-    /// Provider name -> API key (e.g. "openai" -> "sk-...")
-    pub api_keys: Mutex<HashMap<String, String>>,
-    pub ltspice_path: Mutex<Option<String>>,
+    pub ws: Arc<Workspace>,
+    pub config: RwLock<Config>,
+    pub prefs: RwLock<AppPrefs>,
+    pub keys: KeyStore,
+    /// Running agent turns, by session id, so Stop can cancel them.
+    pub running: Mutex<HashMap<String, CancellationToken>>,
+    /// Edits waiting for the user in ask-before-apply mode.
+    pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    pub watcher: Mutex<Option<ProjectWatcher>>,
+    /// The event channel of the turn currently running, used to ask for
+    /// approvals.
+    pub current_channel: Mutex<Option<tauri::ipc::Channel<serde_json::Value>>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
-        let mut keys = HashMap::new();
-
-        // Load from config file first
-        let cfg_path = config_path();
-        if let Ok(data) = std::fs::read_to_string(&cfg_path) {
-            if let Ok(cfg) = serde_json::from_str::<PersistedConfig>(&data) {
-                keys = cfg.api_keys;
-            }
-        }
-
-        // Env vars override persisted config (backwards compat)
-        if let Ok(key) = dotenvy::var("OPENROUTER_API_KEY") {
-            if !key.is_empty() {
-                keys.entry("openrouter".to_string()).or_insert(key);
-            }
-        }
-        if let Ok(key) = dotenvy::var("OPENAI_API_KEY") {
-            if !key.is_empty() {
-                keys.entry("openai".to_string()).or_insert(key);
-            }
-        }
-        if let Ok(key) = dotenvy::var("ANTHROPIC_API_KEY") {
-            if !key.is_empty() {
-                keys.entry("anthropic".to_string()).or_insert(key);
-            }
-        }
-        if let Ok(key) = dotenvy::var("GOOGLE_API_KEY") {
-            if !key.is_empty() {
-                keys.entry("google".to_string()).or_insert(key);
-            }
-        }
-
+        let config = Config::load().unwrap_or_default();
+        let keys = KeyStore::system();
+        // Keys from the old plaintext config move into the keychain on first
+        // start of this version.
+        let _ = keys.migrate_legacy();
+        let ws = Workspace::new();
+        ws.runner
+            .set_config(aispice_tools::setup::runner_config(&config));
         Self {
-            working_directory: Mutex::new(None),
-            api_keys: Mutex::new(keys),
-            ltspice_path: Mutex::new(None),
+            ws: Arc::new(ws),
+            config: RwLock::new(config),
+            prefs: RwLock::new(AppPrefs::load()),
+            keys,
+            running: Mutex::new(HashMap::new()),
+            approvals: Mutex::new(HashMap::new()),
+            watcher: Mutex::new(None),
+            current_channel: Mutex::new(None),
         }
-    }
-
-    /// Persist the current API keys to disk.
-    pub fn persist_keys(&self) -> Result<(), String> {
-        let keys = self
-            .api_keys
-            .lock()
-            .map_err(|e| format!("Lock error: {}", e))?;
-        let cfg = PersistedConfig {
-            api_keys: keys.clone(),
-        };
-        let json =
-            serde_json::to_string_pretty(&cfg).map_err(|e| format!("Serialize error: {}", e))?;
-        let cfg_path = config_path();
-        if let Some(parent) = cfg_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config dir: {}", e))?;
-        }
-        std::fs::write(&cfg_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
-        Ok(())
     }
 }

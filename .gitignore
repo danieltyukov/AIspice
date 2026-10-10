@@ -22,3 +22,7 @@ examples/**/*.net
 
 # Agent worktrees and local assistant state
 .claude/
+
+# Desktop app: generated capability schemas and end-to-end screenshots
+app/src-tauri/gen/
+app/e2e-desktop/output/
