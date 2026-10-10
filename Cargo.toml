@@ -45,7 +45,7 @@ similar = "3"
 keyring = "4"
 tempfile = "3"
 dirs = "6"
-base64 = "0.22"
+base64 = "0.23"
 rand = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
