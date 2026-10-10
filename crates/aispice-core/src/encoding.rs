@@ -62,15 +62,13 @@ fn looks_like_utf16le(bytes: &[u8]) -> bool {
     if probe.len() < 4 {
         return false;
     }
-    probe
-        .chunks_exact(2)
-        .all(|pair| pair[1] == 0 && pair[0] != 0)
+    let (pairs, _) = probe.as_chunks::<2>();
+    pairs.iter().all(|&[lo, hi]| hi == 0 && lo != 0)
 }
 
 fn decode_utf16le(bytes: &[u8]) -> String {
-    let units = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+    let (pairs, _) = bytes.as_chunks::<2>();
+    let units = pairs.iter().map(|&pair| u16::from_le_bytes(pair));
     char::decode_utf16(units)
         .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect()

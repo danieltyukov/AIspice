@@ -127,7 +127,7 @@ fn list_in(root: &Path, p: &Project, circuit: Option<&str>) -> Result<Vec<Sessio
             }
         }
     }
-    out.sort_by(|a, b| b.updated.cmp(&a.updated));
+    out.sort_by_key(|s| std::cmp::Reverse(s.updated));
     Ok(out)
 }
 

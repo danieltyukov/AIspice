@@ -246,7 +246,12 @@ impl<'a> Reader<'a> {
 /// a NUL. LTspice's raw headers always start with `Title:` or a similar key.
 fn looks_wide(bytes: &[u8]) -> bool {
     let probe = &bytes[..bytes.len().min(32) & !1];
-    probe.len() >= 8 && probe.chunks_exact(2).all(|p| p[1] == 0 && p[0] != 0)
+    probe.len() >= 8
+        && probe
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|&[lo, hi]| hi == 0 && lo != 0)
 }
 
 /// Header keys that can start or continue a plot. A line starting with one of
