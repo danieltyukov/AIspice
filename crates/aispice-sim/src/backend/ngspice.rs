@@ -44,7 +44,15 @@ impl Ngspice {
     fn exe(&self) -> Option<PathBuf> {
         match &self.exe {
             Some(p) => p.is_file().then(|| p.clone()),
-            None => which("ngspice"),
+            // On Windows `ngspice.exe` is the GUI build and `ngspice_con.exe`
+            // the console one that batch runs need.
+            None => {
+                if cfg!(windows) {
+                    which("ngspice_con").or_else(|| which("ngspice"))
+                } else {
+                    which("ngspice")
+                }
+            }
         }
     }
 

@@ -6,7 +6,7 @@
 //! and the agent can compare a decibel spec with a frequency spec: a margin
 //! of 0.1 means passing by 10% of the limit, -0.1 failing by 10%.
 //!
-//! Specs have a one-line text form for `aispice.toml` and chat:
+//! Specs have a one-line text form, used in `<circuit>.specs` files and chat:
 //!
 //! ```text
 //! gain = gain_db_at(V(out)/V(in), 1k) >= 20

@@ -8,8 +8,12 @@
   ],
   "scripts": {
     "dev": "npm run dev -w app",
+    "desktop": "npm run tauri -w app -- dev",
     "build": "npm run build -w app",
     "test": "npm test -w app",
+    "check": "npm run check:rust && npm run check:app",
+    "check:rust": "cargo fmt --all --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "check:app": "npm run typecheck -w app && npm run lint -w app && npm test -w app && npm run build -w site",
     "site:dev": "npm run dev -w site",
     "site:build": "npm run build -w site",
     "site:preview": "npm run preview -w site"
