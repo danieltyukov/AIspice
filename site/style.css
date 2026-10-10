@@ -995,6 +995,9 @@ code {
   .hero-shot {
     margin-top: 48px;
   }
+  .band-art img {
+    height: auto;
+  }
   .window-bar {
     padding: 8px 10px;
   }

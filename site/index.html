@@ -252,8 +252,14 @@
           <h2 id="band-title">Every change is simulated before it reaches you.</h2>
         </div>
         <div class="band-art" aria-hidden="true">
-          <img class="when-light" src="/img/render/pcb-light.webp" width="2400" height="1200" loading="lazy" alt="" />
-          <img class="when-dark" src="/img/render/pcb-dark.webp" width="2400" height="1200" loading="lazy" alt="" />
+          <picture class="when-light">
+            <source type="image/avif" srcset="/img/render/pcb-light.avif" />
+            <img src="/img/render/pcb-light.webp" width="2400" height="1200" loading="lazy" alt="" />
+          </picture>
+          <picture class="when-dark">
+            <source type="image/avif" srcset="/img/render/pcb-dark.avif" />
+            <img src="/img/render/pcb-dark.webp" width="2400" height="1200" loading="lazy" alt="" />
+          </picture>
         </div>
       </section>
 
