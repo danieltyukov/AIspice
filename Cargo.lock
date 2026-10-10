@@ -110,11 +110,16 @@ dependencies = [
 name = "aispice-tools"
 version = "0.2.0"
 dependencies = [
+ "aispice-agent",
  "aispice-core",
+ "async-trait",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

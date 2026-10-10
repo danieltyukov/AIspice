@@ -1,0 +1,493 @@
+//! Tools that read and change schematics.
+
+use super::blocking;
+use crate::workspace::Workspace;
+use aispice_agent::tool::parse_input;
+use aispice_agent::{Tool, ToolContext, ToolOutput, ToolSpec, schema_for};
+use aispice_core::diff::diff;
+use aispice_core::edit::{EditOp, apply};
+use aispice_core::lint::{Severity, lint};
+use aispice_core::schematic::Schematic;
+use aispice_core::summary::summarize;
+use async_trait::async_trait;
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::sync::Arc;
+
+fn spec<T: JsonSchema>(name: &str, description: &str) -> ToolSpec {
+    ToolSpec {
+        name: name.into(),
+        description: description.trim().into(),
+        input_schema: schema_for::<T>(),
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NoInput {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CircuitInput {
+    /// Path of the circuit relative to the project folder, e.g. `rc.asc`.
+    pub circuit: String,
+}
+
+pub struct ListCircuits {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for ListCircuits {
+    fn spec(&self) -> ToolSpec {
+        spec::<NoInput>(
+            "list_circuits",
+            "List the circuit files in the open project (.asc schematics and SPICE netlists), newest first. Call this first when you do not know the file names.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, _input: Value) -> ToolOutput {
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let circuits = p.circuits();
+            let mut text = format!("{} circuit(s) in {}:\n", circuits.len(), p.name());
+            for c in &circuits {
+                text.push_str(&format!("  {}\n", c.path));
+            }
+            if circuits.is_empty() {
+                text.push_str("  (none yet; create one with create_schematic)\n");
+            }
+            Ok(ToolOutput::text(text).with_data(json!({"kind": "generic", "value": circuits})))
+        })
+        .await
+    }
+}
+
+pub struct ReadSchematic {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for ReadSchematic {
+    fn spec(&self) -> ToolSpec {
+        spec::<CircuitInput>(
+            "read_schematic",
+            "Describe a schematic in circuit terms: every component with its value and the net on each pin, every net with its members, the directives, and electrical rule check results. Read a circuit before editing it. Pin names shown here (A, B, +, -, C, B, E, D, G, S, In+, ...) are the ones edit_schematic expects.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: CircuitInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let (sch, warnings) = p.load(&input.circuit).map_err(|e| e.to_string())?;
+            let summary = summarize(&sch, p.library());
+            let mut text = format!("{}\n", input.circuit);
+            text.push_str(&summary.to_text());
+            for w in warnings {
+                text.push_str(&format!("Parse note (line {}): {}\n", w.line, w.message));
+            }
+            Ok(ToolOutput::text(text).with_data(
+                json!({"kind": "schematic", "circuit": input.circuit, "summary": summary}),
+            ))
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EditInput {
+    /// Path of the schematic relative to the project folder.
+    pub circuit: String,
+    /// Edits, applied in order and atomically: if one fails, none are kept.
+    pub edits: Vec<EditOp>,
+    /// One short sentence saying why, shown in the history.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+pub struct EditSchematic {
+    pub ws: Arc<Workspace>,
+}
+
+const EDIT_DESCRIPTION: &str = r#"
+Change a schematic with circuit-level edits. Refer to parts by instance name (R1) and to pins as PART.PIN (R1.A, R1.2, Q1.B, V1.+, U1.In-). Never compute coordinates: `connect` routes wires itself and only ever joins the two nets you name (it falls back to net labels when no clean route exists), `connect_to_net` attaches a pin to a named net or to ground (`0`), and `add_component` without `at` finds free space near `near`. Typical sequence for a new part: add_component, then connect or connect_to_net for each pin. Two-terminal parts are vertical by default; orient R90 makes them horizontal. Directives (.tran, .ac, .op, .param, .meas, .step) go in with add_directive.
+The edit is saved immediately (the user can undo it) and LTspice reloads if it is open. The result lists what changed, a semantic diff, and any electrical rule problems the edit introduced; fix those before simulating.
+"#;
+
+#[async_trait]
+impl Tool for EditSchematic {
+    fn spec(&self) -> ToolSpec {
+        spec::<EditInput>("edit_schematic", EDIT_DESCRIPTION)
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: EditInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        // Compute the edit off the executor, ask for approval if configured,
+        // then save off the executor again.
+        let planned = tokio::task::spawn_blocking({
+            let ws = ws.clone();
+            let circuit = input.circuit.clone();
+            let edits = input.edits.clone();
+            move || -> Result<(Schematic, Schematic, aispice_core::edit::EditReport), String> {
+                let p = ws.project().map_err(|e| e.to_string())?;
+                let (before, _) = p.load(&circuit).map_err(|e| e.to_string())?;
+                let mut after = before.clone();
+                let report = apply(&mut after, p.library(), &edits).map_err(|e| e.to_string())?;
+                Ok((before, after, report))
+            }
+        })
+        .await;
+        let (before, after, report) = match planned {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => return ToolOutput::error(format!("No changes made. {e}")),
+            Err(e) => return ToolOutput::error(format!("internal error: {e}")),
+        };
+        let p = match ws.project() {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let d = diff(&before, &after, p.library());
+        if d.is_empty() {
+            return ToolOutput::text(format!("No changes: {}", report.applied.join("; ")));
+        }
+        let summary = input.reason.clone().unwrap_or_else(|| {
+            report
+                .applied
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Edit".into())
+        });
+        if let Some(approver) = ws.approver()
+            && !approver.approve(&input.circuit, &summary, &d.text).await {
+                return ToolOutput::text(
+                    "The user declined this edit; nothing was changed. Ask what they would prefer.",
+                );
+            }
+        blocking(move || {
+            let snapshot = p
+                .save(&input.circuit, &after, &summary)
+                .map_err(|e| e.to_string())?;
+            if let Ok(path) = p.resolve(&input.circuit) {
+                ws.after_save(&path);
+            }
+            let lint_before = lint(&before, p.library()).findings;
+            let lint_after = lint(&after, p.library()).findings;
+            let new_problems: Vec<_> = lint_after
+                .iter()
+                .filter(|f| f.severity != Severity::Info && !lint_before.contains(f))
+                .cloned()
+                .collect();
+            let mut text = format!("Saved {} (undo is available).\n", input.circuit);
+            for a in &report.applied {
+                text.push_str(&format!("  {a}\n"));
+            }
+            for w in &report.warnings {
+                text.push_str(&format!("  note: {w}\n"));
+            }
+            let changes = d.to_text();
+            if !changes.is_empty() {
+                text.push_str("Changes:\n");
+                for line in changes.lines() {
+                    text.push_str(&format!("  {line}\n"));
+                }
+            }
+            if new_problems.is_empty() {
+                text.push_str("Checks: no new problems.\n");
+            } else {
+                text.push_str("New problems to fix:\n");
+                for f in &new_problems {
+                    text.push_str(&format!("  {:?} [{}] {}\n", f.severity, f.rule, f.message));
+                }
+            }
+            let highlights: Vec<Value> = d
+                .highlights()
+                .into_iter()
+                .map(|(inst, kind)| json!({"inst": inst, "kind": kind}))
+                .collect();
+            Ok(ToolOutput::text(text).with_data(json!({
+                "kind": "edit",
+                "circuit": input.circuit,
+                "summary": summary,
+                "diff": d.text,
+                "applied": report.applied,
+                "warnings": report.warnings,
+                "highlights": highlights,
+                "snapshot": snapshot,
+            })))
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateInput {
+    /// New file path relative to the project folder, ending in `.asc`.
+    pub circuit: String,
+    /// Optional edits to build the circuit right away (same operations as
+    /// edit_schematic).
+    #[serde(default)]
+    pub edits: Vec<EditOp>,
+}
+
+pub struct CreateSchematic {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for CreateSchematic {
+    fn spec(&self) -> ToolSpec {
+        spec::<CreateInput>(
+            "create_schematic",
+            "Create a new LTspice schematic file in the project, optionally building it with the same edits edit_schematic accepts. Refuses to overwrite an existing file.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: CreateInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let mut sch = Schematic::new();
+            let report = apply(&mut sch, p.library(), &input.edits)
+                .map_err(|e| format!("No file created. {e}"))?;
+            p.create(&input.circuit, &sch).map_err(|e| e.to_string())?;
+            if let Ok(path) = p.resolve(&input.circuit) {
+                ws.after_save(&path);
+            }
+            let summary = summarize(&sch, p.library());
+            let mut text = format!(
+                "Created {} with {} component(s).\n",
+                input.circuit,
+                summary.components.len()
+            );
+            for a in &report.applied {
+                text.push_str(&format!("  {a}\n"));
+            }
+            text.push_str(&summary.to_text());
+            Ok(ToolOutput::text(text).with_data(
+                json!({"kind": "schematic", "circuit": input.circuit, "summary": summary}),
+            ))
+        })
+        .await
+    }
+}
+
+pub struct Lint {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for Lint {
+    fn spec(&self) -> ToolSpec {
+        spec::<CircuitInput>(
+            "lint",
+            "Run electrical rule checks on a schematic: missing ground, floating pins, dangling wires, duplicate names, missing values, shorted parts, parallel voltage sources, nets with no DC path to ground, missing analysis directive. Run it after edits and before simulating.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: CircuitInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let (sch, _) = p.load(&input.circuit).map_err(|e| e.to_string())?;
+            let report = lint(&sch, p.library());
+            let mut text = if report.findings.is_empty() {
+                format!("{}: no problems found.\n", input.circuit)
+            } else {
+                format!(
+                    "{}: {} error(s), {} warning(s).\n",
+                    input.circuit,
+                    report.errors(),
+                    report.warnings()
+                )
+            };
+            for f in &report.findings {
+                text.push_str(&format!("  {:?} [{}] {}\n", f.severity, f.rule, f.message));
+            }
+            Ok(ToolOutput::text(text)
+                .with_data(json!({"kind": "lint", "findings": report.findings})))
+        })
+        .await
+    }
+}
+
+pub struct NetlistTool {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for NetlistTool {
+    fn spec(&self) -> ToolSpec {
+        spec::<CircuitInput>(
+            "netlist",
+            "Show the SPICE netlist of a schematic, derived the way LTspice does it (instance names, node order, default models). Useful to check exactly what will be simulated.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: CircuitInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let (sch, _) = p.load(&input.circuit).map_err(|e| e.to_string())?;
+            let (built, _) =
+                aispice_core::netlist::build(&sch, p.library(), &format!("* {}", input.circuit));
+            let mut text = aispice_core::netlist::write(&built.netlist);
+            for w in &built.warnings {
+                text.push_str(&format!("* warning: {w}\n"));
+            }
+            Ok(ToolOutput::text(text))
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryAction {
+    List,
+    Undo,
+    Redo,
+    Restore,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct HistoryInput {
+    pub circuit: String,
+    pub action: HistoryAction,
+    /// Snapshot id for `restore`, from `list`.
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+pub struct History {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for History {
+    fn spec(&self) -> ToolSpec {
+        spec::<HistoryInput>(
+            "history",
+            "List a schematic's saved versions, or undo, redo or restore one. Every edit made by aispice and every change made in LTspice in between is a version.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: HistoryInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let moved = match input.action {
+                HistoryAction::List => None,
+                HistoryAction::Undo => Some(p.undo(&input.circuit)),
+                HistoryAction::Redo => Some(p.redo(&input.circuit)),
+                HistoryAction::Restore => {
+                    let id = input
+                        .snapshot
+                        .clone()
+                        .ok_or("restore needs a snapshot id from the list action")?;
+                    Some(p.restore(&input.circuit, &id))
+                }
+            };
+            if let Some(m) = moved {
+                let snap = m.map_err(|e| e.to_string())?;
+                if let Ok(path) = p.resolve(&input.circuit) {
+                    ws.after_save(&path);
+                }
+                return Ok(ToolOutput::text(format!(
+                    "{} is now at version {} ({}).",
+                    input.circuit, snap.id, snap.summary
+                )));
+            }
+            let (snaps, current) = p.history(&input.circuit).map_err(|e| e.to_string())?;
+            let mut text = format!("{} version(s) of {}:\n", snaps.len(), input.circuit);
+            for (i, s) in snaps.iter().enumerate() {
+                text.push_str(&format!(
+                    "  {}{}  {}\n",
+                    if i == current { "* " } else { "  " },
+                    s.id,
+                    s.summary
+                ));
+            }
+            Ok(ToolOutput::text(text).with_data(
+                json!({"kind": "generic", "value": {"snapshots": snaps, "current": current}}),
+            ))
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SymbolsInput {
+    /// Words to match in symbol names and descriptions, e.g. `opamp`,
+    /// `schottky`, `LT1001`. Empty lists the common ones.
+    #[serde(default)]
+    pub query: String,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+fn default_limit() -> usize {
+    25
+}
+
+pub struct Symbols {
+    pub ws: Arc<Workspace>,
+}
+
+#[async_trait]
+impl Tool for Symbols {
+    fn spec(&self) -> ToolSpec {
+        spec::<SymbolsInput>(
+            "symbols",
+            "Search the symbols available for add_component: aispice's built-in set and, when installed, LTspice's library (thousands of vendor parts such as LT1001 or ADA4898). Shows each symbol's name, prefix and pin names in SPICE order.",
+        )
+    }
+
+    async fn call(&self, _ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: SymbolsInput = match parse_input(input) {
+            Ok(i) => i,
+            Err(e) => return e,
+        };
+        let ws = self.ws.clone();
+        blocking(move || {
+            let p = ws.project().map_err(|e| e.to_string())?;
+            let hits = p.library().search(&input.query, input.limit.clamp(1, 200));
+            let mut text = format!("{} symbol(s):\n", hits.len());
+            for h in &hits {
+                text.push_str(&format!(
+                    "  {}  [{}] pins: {}  {}\n",
+                    h.name,
+                    h.prefix,
+                    h.pins.join(", "),
+                    h.description.as_deref().unwrap_or("")
+                ));
+            }
+            Ok(ToolOutput::text(text).with_data(json!({"kind": "generic", "value": hits})))
+        })
+        .await
+    }
+}
