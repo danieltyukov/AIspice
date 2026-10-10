@@ -289,7 +289,7 @@ impl Project {
         let Ok(dir) = self.state_subdir(&["history", &history_key(rel)]) else {
             return HistoryIndex::default();
         };
-        let mut idx: HistoryIndex = std::fs::read(dir.join("index.json"))
+        let mut idx: HistoryIndex = read_plain(&dir.join("index.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
@@ -330,7 +330,7 @@ impl Project {
             .snapshots
             .get(idx.current)
             .and_then(|s| self.snapshot_path(rel, &s.id).ok())
-            .and_then(|p| std::fs::read(p).ok());
+            .and_then(|p| read_plain(&p).ok());
         if last.as_deref() != Some(on_disk.as_slice()) {
             let summary = if idx.snapshots.is_empty() {
                 "Opened"
@@ -427,7 +427,7 @@ impl Project {
             .get(to)
             .cloned()
             .ok_or(ProjectError::NoHistory(what))?;
-        let bytes = std::fs::read(self.snapshot_path(rel, &snap.id)?).map_err(|e| io(&path, e))?;
+        let bytes = read_plain(&self.snapshot_path(rel, &snap.id)?).map_err(|e| io(&path, e))?;
         atomic_write(&path, &bytes)?;
         idx.current = to;
         self.write_index(rel, &idx)?;
@@ -478,6 +478,21 @@ impl Project {
         }
         self.state_subdir(&["runs", &safe])
     }
+}
+
+/// Read a file aispice wrote under its state folder, refusing anything that
+/// is not a regular file. A project can ship a `.aispice` folder whose
+/// snapshot or index files are symlinks; following one would let undo copy a
+/// file from outside the project into a circuit the model then reads.
+fn read_plain(path: &Path) -> std::io::Result<Vec<u8>> {
+    let meta = std::fs::symlink_metadata(path)?;
+    if !meta.file_type().is_file() {
+        return Err(std::io::Error::other(format!(
+            "{} is not a regular file",
+            path.display()
+        )));
+    }
+    std::fs::read(path)
 }
 
 /// The history folder name for a circuit path: one safe path segment.
@@ -703,6 +718,27 @@ mod tests {
             0,
             "nothing written through the link"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_snapshot_files_are_not_followed() {
+        let (_d, p) = project();
+        let (mut sch, _) = p.load("rc.asc").unwrap();
+        p.save("rc.asc", &sch, "first").unwrap();
+        sch.symbol_mut("R1").unwrap().set_attr("Value", "2k");
+        p.save("rc.asc", &sch, "second").unwrap();
+        let (snaps, _) = p.history("rc.asc").unwrap();
+        let first = p
+            .root()
+            .join(".aispice/history/rc.asc")
+            .join(format!("{}.asc", snaps[snaps.len() - 2].id));
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret"), "TOP SECRET").unwrap();
+        std::fs::remove_file(&first).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret"), &first).unwrap();
+        assert!(p.undo("rc.asc").is_err());
+        assert!(!p.read_text("rc.asc").unwrap().contains("TOP SECRET"));
     }
 
     #[test]

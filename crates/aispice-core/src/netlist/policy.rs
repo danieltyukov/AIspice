@@ -333,11 +333,12 @@ fn path_like_values(line: &str) -> Vec<String> {
     out
 }
 
+/// `C:\x`, `C:/x` and also drive-relative `C:x`, which Windows (and Wine)
+/// resolve against the current folder of that drive.
 fn is_drive_path(s: &str) -> bool {
     let b = s.as_bytes();
-    b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+    b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':'
 }
-
 /// Resolve a referenced file. Ok(Some(path)) when it exists inside an allowed
 /// folder, Ok(None) for a bare library name that does not exist next to the
 /// deck (the simulator finds it on its own library path), Err otherwise.
@@ -490,6 +491,19 @@ mod tests {
             "t\nR1 a 0 1k\u{1b}[2J\n",
         ] {
             assert!(!check(deck, &policy_at(&d)).is_empty(), "{deck:?}");
+        }
+    }
+
+    #[test]
+    fn drive_relative_and_variable_paths_are_refused() {
+        let d = temp("drive");
+        for deck in [
+            "t\n.lib C:secret.lib\n",
+            "t\n.include $HOME/x.lib\n",
+            "t\n.include %USERPROFILE%\\x.lib\n",
+            "t\nV1 a 0 PWL file=D:data.txt\n",
+        ] {
+            assert!(!check(deck, &policy_at(&d)).is_empty(), "{deck}");
         }
     }
 
