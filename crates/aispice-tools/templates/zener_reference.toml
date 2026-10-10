@@ -1,0 +1,24 @@
+id = "zener_reference"
+title = "Zener shunt voltage reference"
+category = "references"
+description = "The simplest voltage reference: a series resistor from the supply and a zener diode to ground, with the load across the zener. The zener (a 5.1 V breakdown model written as a .model directive) holds its voltage while its current changes, so the output moves little as the input or the load changes. The DC sweep of V1 from 9 V to 15 V shows the line regulation. Replace DZ5V1 with a real zener's model for accuracy and temperature drift."
+analysis = ".dc V1 9 15 0.1"
+specs = """
+vref = value_at(V(ref), 12) = 5.18 +- 0.15
+line = pp(V(ref)) <= 0.1
+"""
+
+[[parameters]]
+part = "Rs"
+controls = "Zener current, and so the minimum input voltage and the regulation"
+equation = "Rs = (Vin_min - Vz) / (Iz_min + Iload_max)"
+
+[[parameters]]
+part = "D1"
+controls = "Output voltage: the model's breakdown voltage Bv (and dynamic resistance through Rs)"
+equation = "Vref is about Bv; line regulation dVref / dVin = rz / (Rs + rz)"
+
+[[parameters]]
+part = "RL"
+controls = "Load current drawn from the reference"
+equation = "Iload = Vref / RL; the zener current falls by the same amount"

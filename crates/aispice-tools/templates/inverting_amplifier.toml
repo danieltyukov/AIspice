@@ -1,0 +1,24 @@
+id = "inverting_amplifier"
+title = "Inverting amplifier"
+category = "amplifiers"
+description = "Op-amp gain stage with gain -R2/R1. The inverting input is a virtual ground, so the input impedance is R1 and the output does not depend on the source impedance once it is small against R1. Closed-loop bandwidth is the op-amp's GBW divided by the noise gain 1 + R2/R1."
+analysis = ".ac dec 50 10 10Meg"
+specs = """
+gain = gain_db_at(V(out)/V(in), 1k) = 20 +- 0.3
+bw = bandwidth_3db(V(out)/V(in)) in 600k..1.3Meg
+"""
+
+[[parameters]]
+part = "R2"
+controls = "Gain (the feedback resistor)"
+equation = "G = -R2 / R1; bandwidth = GBW / (1 + R2 / R1)"
+
+[[parameters]]
+part = "R1"
+controls = "Gain and the input impedance"
+equation = "G = -R2 / R1; Zin = R1"
+
+[[parameters]]
+part = "U1"
+controls = "Bandwidth, through the op-amp's gain-bandwidth product (the GBW parameter of the ideal model)"
+equation = "f3dB = GBW / (1 + R2 / R1)"

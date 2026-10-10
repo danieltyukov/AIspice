@@ -1,0 +1,25 @@
+id = "integrator"
+title = "Inverting integrator with DC gain limit"
+category = "filters"
+description = "Op-amp integrator (a first-order active low-pass with a very low corner). Above the corner set by Rf and Cf the output is the negative time integral of the input over Rin Cf, falling 20 dB per decade through unity gain at 1/(2 pi Rin Cf). Rf across Cf limits the DC gain so input offsets cannot drive the output into a rail; remove it only inside a loop that sets the DC level."
+analysis = ".ac dec 50 1 1Meg"
+specs = """
+ugf = unity_gain_freq(V(out)/V(in)) in 1.4k..1.8k
+g100 = gain_db_at(V(out)/V(in), 100) = 24 +- 1
+dc = gain_db_at(V(out)/V(in), 1) = 40 +- 0.5
+"""
+
+[[parameters]]
+part = "Cf"
+controls = "Integration time constant and the unity-gain frequency"
+equation = "f_unity = 1 / (2 pi Rin Cf); Vout = -(1 / (Rin Cf)) * integral of Vin dt"
+
+[[parameters]]
+part = "Rin"
+controls = "Integration time constant and the input impedance"
+equation = "f_unity = 1 / (2 pi Rin Cf); Zin = Rin"
+
+[[parameters]]
+part = "Rf"
+controls = "DC gain limit and the corner below which the circuit stops integrating"
+equation = "DC gain = -Rf / Rin; corner = 1 / (2 pi Rf Cf)"

@@ -7,6 +7,7 @@
 mod render_tools;
 mod schematic_tools;
 mod sim_tools;
+mod template_tools;
 
 use crate::workspace::Workspace;
 use aispice_agent::{Registry, ToolOutput};
@@ -15,6 +16,7 @@ use std::sync::Arc;
 pub use render_tools::*;
 pub use schematic_tools::*;
 pub use sim_tools::*;
+pub use template_tools::*;
 
 /// All tools, bound to one workspace.
 pub fn registry(ws: Arc<Workspace>) -> Registry {
@@ -38,7 +40,8 @@ pub fn registry(ws: Arc<Workspace>) -> Registry {
     r.register(OperatingPoint { ws: ws.clone() });
     r.register(Sweep { ws: ws.clone() });
     r.register(MonteCarlo { ws: ws.clone() });
-    r.register(Optimize { ws });
+    r.register(Optimize { ws: ws.clone() });
+    r.register(Templates { ws });
     r
 }
 

@@ -1,0 +1,29 @@
+id = "halfwave_rectifier"
+title = "Half-wave rectifier with reservoir capacitor"
+category = "power"
+description = "Unregulated DC supply from an AC source: D1 charges C1 to the peak of each positive half cycle and C1 feeds the load in between. V1 stands for a transformer secondary of 10 V peak at 50 Hz. The ripple frequency equals the line frequency, so the capacitor must be twice as large as for a full-wave bridge. D1 conducts in short, high-current pulses; check its peak and surge rating. D1 uses DRECT, a generic 1N4007-class model written in the schematic."
+analysis = ".tran 0 100m 0 10u"
+specs = """
+vdc = avg(V(out), 40m, 100m) in 8.4..9.7
+ripple = pp(V(out), 40m, 100m) <= 0.6
+"""
+
+[[parameters]]
+part = "C1"
+controls = "Ripple voltage (the reservoir capacitor)"
+equation = "ripple Vpp = Iload / (f C1), f = line frequency for half-wave"
+
+[[parameters]]
+part = "RL"
+controls = "Load current, and so the ripple"
+equation = "Iload = Vdc / RL"
+
+[[parameters]]
+part = "D1"
+controls = "Forward drop and current rating; the model sets Vf"
+equation = "Vdc is about Vpeak - Vf - ripple / 2"
+
+[[parameters]]
+part = "V1"
+controls = "Input amplitude and frequency (the transformer secondary)"
+equation = "Vpeak = sqrt(2) Vrms"

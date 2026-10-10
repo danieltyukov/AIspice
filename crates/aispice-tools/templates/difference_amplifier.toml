@@ -1,0 +1,29 @@
+id = "difference_amplifier"
+title = "Difference amplifier"
+category = "amplifiers"
+description = "Four-resistor op-amp difference amplifier: amplifies V(inp) - V(inn) by R2/R1 and rejects the voltage common to both inputs. Common-mode rejection depends on how well R4/R3 matches R2/R1 (1% resistors give roughly 40 dB at a gain of 10). The input impedances are unequal: R1 on inn, R3 + R4 on inp."
+analysis = ".tran 0 5m 0 1u"
+specs = """
+gain_pp = pp(V(out), 1m, 5m) = 2 +- 0.06
+cm_out = avg(V(out), 1m, 5m) in -20m..20m
+"""
+
+[[parameters]]
+part = "R2"
+controls = "Differential gain (the feedback resistor); change R4 with it"
+equation = "G = R2 / R1, valid while R4 / R3 = R2 / R1"
+
+[[parameters]]
+part = "R1"
+controls = "Differential gain and the inn input impedance; change R3 with it"
+equation = "G = R2 / R1; Zin(inn) = R1 to a virtual ground"
+
+[[parameters]]
+part = "R4"
+controls = "Common-mode rejection: must match R2 (the resistor from the non-inverting input to ground)"
+equation = "common-mode gain = (R4 R1 - R2 R3) / (R1 (R3 + R4))"
+
+[[parameters]]
+part = "R3"
+controls = "Common-mode rejection: must match R1"
+equation = "common-mode gain = (R4 R1 - R2 R3) / (R1 (R3 + R4))"

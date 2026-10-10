@@ -1,0 +1,20 @@
+id = "rc_highpass"
+title = "RC high-pass filter"
+category = "filters"
+description = "First-order passive high-pass: C1 in series, R1 to ground. Blocks DC and passes frequencies above the corner; below it the gain falls 20 dB per decade. Also the usual AC coupling network, where R1 sets the DC level of the output."
+analysis = ".ac dec 50 10 1Meg"
+specs = """
+f3db = freq_at_db(V(out)/V(in), -3) in 1.45k..1.75k
+pass = gain_db_at(V(out)/V(in), 100k) >= -0.1
+stop = gain_db_at(V(out)/V(in), 100) <= -20
+"""
+
+[[parameters]]
+part = "C1"
+controls = "Corner frequency (with R1)"
+equation = "fc = 1 / (2 pi R1 C1)"
+
+[[parameters]]
+part = "R1"
+controls = "Corner frequency (with C1) and the input impedance at high frequency"
+equation = "fc = 1 / (2 pi R1 C1)"

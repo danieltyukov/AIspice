@@ -1,0 +1,31 @@
+id = "level_shifter"
+title = "Bidirectional NMOS logic level shifter (3.3 V to 5 V)"
+category = "digital"
+description = "The common one-transistor level shifter used for I2C and other open-drain buses: the gate sits at the low supply, the source on the low-voltage side and the drain on the high-voltage side, each side with its own pull-up. A low on either side pulls the other side low (through the channel, or through the body diode first); when both sides are released the pull-ups set each side to its own supply. Rise time is set by the pull-up resistor and the bus capacitance Cbus; the specs measure edges from 30% to 70%, the I2C convention (standard mode allows a 1 us rise, fast mode a 300 ns fall). V1 with Rs stands for a 3.3 V push-pull driver, and M1 uses NSW, a generic 2N7002-class model written in the schematic."
+analysis = ".tran 0 40u 0 10n"
+specs = """
+out_low = min(V(out), 1u, 40u) <= 0.4
+out_high = max(V(out), 1u, 40u) >= 4.5
+rise = rise_time(V(out), 30, 70, from=4u, to=14u) <= 1u
+fall = fall_time(V(out), 30, 70, from=14u, to=24u) <= 300n
+"""
+
+[[parameters]]
+part = "Rhi"
+controls = "Rise time and low-level current on the 5 V side"
+equation = "rise time from 30% to 70% is at most about 0.85 Rhi Cbus; Vol = I Rds(on) with I = 5 V / Rhi"
+
+[[parameters]]
+part = "Cbus"
+controls = "The 5 V side's wiring and input capacitance: set it to the real bus"
+equation = "rise time from 30% to 70% is at most about 0.85 Rhi Cbus"
+
+[[parameters]]
+part = "Rlo"
+controls = "Rise time on the 3.3 V side and the current a low-side driver must sink"
+equation = "I = 3.3 V / Rlo"
+
+[[parameters]]
+part = "M1"
+controls = "Low level and speed: needs Vth well below the low supply and low capacitance"
+equation = "Vgs(on) = 3.3 V - V(lv); Rds(on) at that Vgs sets Vol"

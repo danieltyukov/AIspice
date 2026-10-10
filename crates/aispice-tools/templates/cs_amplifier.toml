@@ -1,0 +1,40 @@
+id = "cs_amplifier"
+title = "Common-source NMOS amplifier"
+category = "amplifiers"
+description = "Single-MOSFET voltage amplifier on a 12 V supply with a simple level-1 NMOS model (Vto = 1 V, Kp = 2 mA/V^2, W = L) written as a .model directive; swap in a real part's model to design with it. The gate divider and Rs set about 1 mA of drain current, Cs bypasses Rs for full gain, and Cin and Cout block DC. The input is a 20 mVpp, 1 kHz sine."
+analysis = ".tran 0 5m 0 1u"
+specs = """
+vd = avg(V(drain), 1m, 5m) in 6..9
+vout_pp = pp(V(out), 1m, 5m) in 150m..210m
+thd = thd(V(out), 1k) <= 2
+"""
+
+[[parameters]]
+part = "Rd"
+controls = "Gain and the drain bias voltage"
+equation = "Av = -gm (Rd || RL || ro); V(drain) = Vdd - Id Rd"
+
+[[parameters]]
+part = "Rs"
+controls = "Drain current (with the gate divider); bypassed by Cs so it does not reduce the gain"
+equation = "Id = Kp/2 (W/L) (Vg - Id Rs - Vto)^2"
+
+[[parameters]]
+part = "R1"
+controls = "Gate bias, with R2 (the upper divider resistor)"
+equation = "Vg = Vdd R2 / (R1 + R2)"
+
+[[parameters]]
+part = "R2"
+controls = "Gate bias and the input impedance"
+equation = "Vg = Vdd R2 / (R1 + R2); Zin = R1 || R2"
+
+[[parameters]]
+part = "M1"
+controls = "Transconductance through W/L (the SpiceLine l and w) and the model's Kp and Vto"
+equation = "gm = sqrt(2 Kp (W/L) Id)"
+
+[[parameters]]
+part = "Cs"
+controls = "Low-frequency corner of the bypass"
+equation = "f_low is about gm / (2 pi Cs) when Rs is much larger than 1/gm"

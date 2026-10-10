@@ -402,8 +402,19 @@ impl Project {
         Ok((before, id))
     }
 
-    /// Create a new, empty schematic file. Refuses to overwrite.
+    /// Create a new schematic file. Refuses to overwrite.
     pub fn create(&self, rel: &str, sch: &Schematic) -> Result<String, ProjectError> {
+        self.create_as(rel, sch, "Created")
+    }
+
+    /// [`create`](Self::create), recording `summary` as the first version's
+    /// description in the history.
+    pub fn create_as(
+        &self,
+        rel: &str,
+        sch: &Schematic,
+        summary: &str,
+    ) -> Result<String, ProjectError> {
         if !rel.to_ascii_lowercase().ends_with(".asc") {
             return Err(ProjectError::NotSchematic(rel.to_string()));
         }
@@ -411,7 +422,7 @@ impl Project {
         if path.exists() {
             return Err(ProjectError::Other(format!("{rel} already exists")));
         }
-        self.save(rel, sch, "Created")
+        self.save(rel, sch, summary)
     }
 
     pub fn history(&self, rel: &str) -> Result<(Vec<Snapshot>, usize), ProjectError> {

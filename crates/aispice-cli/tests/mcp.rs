@@ -113,6 +113,7 @@ fn mcp_session_builds_reads_and_renders_a_circuit() {
         "history",
         "render_schematic",
         "symbols",
+        "templates",
     ] {
         assert!(names.contains(&want), "missing {want} in {names:?}");
     }
