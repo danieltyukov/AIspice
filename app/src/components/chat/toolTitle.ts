@@ -88,6 +88,12 @@ export function toolTitle(call: ChatToolCall, streaming: boolean): { title: stri
       return { title: `Optimized in ${plural(data.evaluations, "evaluation")}`, tone: "done" };
     case "montecarlo":
       return { title: `Ran ${data.runs} Monte Carlo runs: ${data.yield_pct.toFixed(1)}% yield`, tone: "done" };
+    case "templates":
+      return { title: `Found ${plural(data.items.length, "template")}`, tone: "done" };
+    case "template":
+      return data.action === "use" && data.circuit
+        ? { title: `Created ${baseName(data.circuit)} from ${data.template.title}`, tone: "done" }
+        : { title: `Template: ${data.template.title}`, tone: "done" };
     case "poles_zeros":
       return {
         title: `${data.stable ? "Stable" : "Not stable"}: ${plural(data.poles.length, "pole")}, ${plural(data.zeros.length, "zero")}`,

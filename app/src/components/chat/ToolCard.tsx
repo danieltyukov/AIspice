@@ -206,6 +206,38 @@ function DataDetails({ data }: { data: ToolData }) {
       );
     case "montecarlo":
       return <pre className="tool-text">{data.report}</pre>;
+    case "templates":
+      return data.items.length === 0 ? (
+        <p className="panel-note">No templates match.</p>
+      ) : (
+        <dl className="tool-kv">
+          {data.items.map((t) => (
+            <div key={t.id}>
+              <dt className="mono">{t.id}</dt>
+              <dd>{t.title}</dd>
+            </div>
+          ))}
+        </dl>
+      );
+    case "template":
+      return (
+        <div className="tool-section">
+          <p className="panel-note">{data.template.description}</p>
+          {data.template.parameters.length > 0 ? (
+            <dl className="tool-kv">
+              {data.template.parameters.map((p) => (
+                <div key={p.part}>
+                  <dt className="mono">{p.part}</dt>
+                  <dd>
+                    {p.controls}: <span className="mono">{p.equation}</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          <pre className="tool-text">{data.template.specs}</pre>
+        </div>
+      );
     case "poles_zeros": {
       const roots = [
         ...data.poles.map((r, i) => ({ label: `p${i + 1}`, r })),

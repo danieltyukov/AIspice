@@ -253,7 +253,37 @@ export type ToolData =
       /** Set when device values could not be had (no ngspice). */
       note?: string;
     }
+  | { kind: "templates"; items: TemplateInfo[] }
+  | {
+      kind: "template";
+      action: "show" | "use";
+      template: TemplateDetail;
+      summary: SchematicSummary;
+      /** Set for `use`: the new circuit and its spec file. */
+      circuit?: string;
+      specs_file?: string;
+    }
   | { kind: "generic"; value: unknown };
+
+export interface TemplateInfo {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+}
+
+export interface TemplateParameter {
+  part: string;
+  controls: string;
+  equation: string;
+}
+
+export interface TemplateDetail extends TemplateInfo {
+  analysis: string;
+  /** The spec table, one spec per line. */
+  specs: string;
+  parameters: TemplateParameter[];
+}
 
 /** A pole or zero in Hz. `q` is set for a damped complex root only. */
 export interface PzRoot {

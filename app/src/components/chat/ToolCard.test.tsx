@@ -60,6 +60,41 @@ describe("toolTitle", () => {
     );
   });
 
+  it("names template lookups and the circuit a template became", () => {
+    const template = {
+      id: "rc_lowpass",
+      title: "RC low-pass filter",
+      category: "filters",
+      description: "First-order low-pass.",
+      analysis: ".ac dec 50 10 100k",
+      specs: "f3db = bandwidth_3db(V(out)) in 1.45k..1.75k",
+      parameters: [{ part: "R1", controls: "corner frequency", equation: "f = 1/(2 pi R1 C1)" }],
+    };
+    const summary = { components: [], nets: [], directives: [], comments: [], analysis: null, findings: [] };
+    const list: ChatToolCall = {
+      id: "l",
+      name: "templates",
+      input: { action: "list" },
+      output: {
+        content: [],
+        is_error: false,
+        data: { kind: "templates", items: [template, { ...template, id: "rc_highpass", title: "RC high-pass filter" }] },
+      },
+    };
+    expect(toolTitle(list, false).title).toBe("Found 2 templates");
+    const used: ChatToolCall = {
+      id: "u",
+      name: "templates",
+      input: { action: "use" },
+      output: {
+        content: [],
+        is_error: false,
+        data: { kind: "template", action: "use", template, summary, circuit: "filters/lp.asc", specs_file: "filters/lp.specs" },
+      },
+    };
+    expect(toolTitle(used, false).title).toBe("Created lp.asc from RC low-pass filter");
+  });
+
   it("describes running, stopped and failed calls", () => {
     expect(toolTitle({ id: "c", name: "simulate", input: { circuit: "a/rc.asc" } }, true)).toEqual({ title: "Simulating rc.asc...", tone: "running" });
     expect(toolTitle({ id: "c", name: "simulate", input: {} }, false).tone).toBe("stopped");
