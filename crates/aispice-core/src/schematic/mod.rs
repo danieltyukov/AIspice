@@ -209,8 +209,22 @@ impl Symbol {
     }
 }
 
+/// Lower-cased, `/`-separated, with repeated separators collapsed: LTspice
+/// writes `OpAmps\\opamp2` with a doubled backslash, and some files use one.
 pub fn normalize_symbol_name(name: &str) -> String {
-    name.replace('\\', "/").to_ascii_lowercase()
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        let c = if c == '\\' {
+            '/'
+        } else {
+            c.to_ascii_lowercase()
+        };
+        if c == '/' && out.ends_with('/') {
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

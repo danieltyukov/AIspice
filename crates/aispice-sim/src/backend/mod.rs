@@ -301,10 +301,23 @@ impl Workspace {
     }
 
     /// Move the named files that exist into `run_dir`, returning their new
-    /// paths. Missing files are skipped.
+    /// paths. Missing files are skipped. Nothing here follows a symlink in
+    /// `run_dir`: the folder itself must be a plain directory, an existing
+    /// entry at a target name is removed first (a link is removed, not
+    /// followed), and copies create their files exclusively.
     pub fn keep(&self, run_dir: &Path, names: &[String]) -> Result<Vec<PathBuf>, SimError> {
-        std::fs::create_dir_all(run_dir)
-            .map_err(|e| SimError::Io(format!("cannot create {}: {e}", run_dir.display())))?;
+        let io = |what: &str, e: std::io::Error| SimError::Io(format!("{what}: {e}"));
+        match std::fs::symlink_metadata(run_dir) {
+            Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
+                return Err(SimError::Io(format!(
+                    "{} is not a plain folder",
+                    run_dir.display()
+                )));
+            }
+            Ok(_) => {}
+            Err(_) => std::fs::create_dir_all(run_dir)
+                .map_err(|e| io(&format!("cannot create {}", run_dir.display()), e))?,
+        }
         let mut out = Vec::new();
         for name in names {
             let from = self.file(name);
@@ -312,7 +325,16 @@ impl Workspace {
                 continue;
             }
             let to = run_dir.join(name);
-            let moved = std::fs::rename(&from, &to).is_ok() || copy_tree(&from, &to).is_ok();
+            if let Ok(m) = std::fs::symlink_metadata(&to) {
+                let removed = if m.is_dir() && !m.file_type().is_symlink() {
+                    std::fs::remove_dir_all(&to)
+                } else {
+                    std::fs::remove_file(&to)
+                };
+                removed.map_err(|e| io(&format!("cannot replace {}", to.display()), e))?;
+            }
+            let moved =
+                std::fs::rename(&from, &to).is_ok() || copy_tree_exclusive(&from, &to).is_ok();
             if !moved {
                 return Err(SimError::Io(format!(
                     "cannot keep {} in {}",
@@ -326,15 +348,27 @@ impl Workspace {
     }
 }
 
-fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    if from.is_dir() {
-        std::fs::create_dir_all(to)?;
+/// Copy a file or folder, creating every destination entry fresh so an
+/// existing link at the destination makes the copy fail instead of writing
+/// through it.
+fn copy_tree_exclusive(from: &Path, to: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(from)?;
+    if meta.file_type().is_symlink() {
+        return Err(std::io::Error::other("refusing to copy a symlink"));
+    }
+    if meta.is_dir() {
+        std::fs::create_dir(to)?;
         for e in std::fs::read_dir(from)?.flatten() {
-            copy_tree(&e.path(), &to.join(e.file_name()))?;
+            copy_tree_exclusive(&e.path(), &to.join(e.file_name()))?;
         }
         Ok(())
     } else {
-        std::fs::copy(from, to).map(|_| ())
+        let mut src = std::fs::File::open(from)?;
+        let mut dst = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(to)?;
+        std::io::copy(&mut src, &mut dst).map(|_| ())
     }
 }
 

@@ -40,11 +40,8 @@ fn aispice_netlist(asc: &Path, lib: &SymbolLibrary) -> aispice_core::netlist::Ne
     built.netlist
 }
 
-/// LTspice writes library symbols as `OpAmps\\opamp`. aispice-core's
-/// `normalize_symbol_name` turns that into `opamps//opamp`, which misses the
-/// built-in `OpAmps/opamp` (reported; pinned by
-/// `known_bug_doubled_backslash_symbols`), so the test feeds single
-/// backslashes, which the lookup handles.
+/// LTspice writes library symbols as `OpAmps\\opamp`; both forms resolve,
+/// and this keeps the committed fixtures in the single-backslash form too.
 fn single_backslashes(bytes: &[u8]) -> Vec<u8> {
     let (text, _) = aispice_core::encoding::decode(bytes);
     let fixed: String = text
@@ -120,16 +117,16 @@ fn aispice_netlists_match_ltspice() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
+/// Was a bug: `OpAmps\\opamp` normalised to `opamps//opamp`.
 #[test]
-#[ignore = "aispice-core bug: doubled backslashes in SYMBOL names miss the built-in symbols"]
-fn known_bug_doubled_backslash_symbols() {
+fn doubled_backslash_symbols_resolve() {
     let lib = SymbolLibrary::builtin_only();
     assert!(lib.resolve("OpAmps\\\\opamp").is_ok());
 }
 
+/// Was a bug: default `.model` cards were only added for generic model names.
 #[test]
-#[ignore = "aispice-core bug: default .model cards are only added for generic model names"]
-fn known_bug_default_model_cards_for_named_models() {
+fn default_model_cards_for_named_models() {
     let lib = SymbolLibrary::builtin_only();
     for name in ["ce_amp", "rectifier", "nmos_cs"] {
         let asc = schematics_dir().join(format!("{name}.asc"));

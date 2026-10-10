@@ -176,7 +176,14 @@ impl Spectre {
         let mut download_to = local_dir.as_os_str().to_owned();
         download_to.push("/");
         Ok(Plan {
-            mkdir: ssh_cmd(format!("mkdir -p {dir}")),
+            // The base folder may be shared (a /tmp on a department server).
+            // The run folder is created with `mkdir` and no `-p`, so it fails
+            // if anything already sits at that path, a planted symlink
+            // included, and it is private to this user from the start.
+            mkdir: ssh_cmd(format!(
+                "umask 077 && mkdir -p {base} && mkdir -m 700 {dir}",
+                base = c.remote_dir.trim_end_matches('/')
+            )),
             upload: scp_cmd(
                 false,
                 vec![
@@ -207,12 +214,23 @@ fn spec(argv: &[OsString], cwd: &Path) -> ProcessSpec {
     s
 }
 
+/// An unpredictable folder suffix. The standard library seeds each
+/// `RandomState` from the operating system's random source, so hashing with
+/// two fresh ones gives 128 bits nobody on the remote host can guess.
 fn nonce() -> String {
+    use std::hash::{BuildHasher, Hasher};
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("{:x}{:x}", std::process::id(), t & 0xffff_ffff)
+    let mut parts = [0u64; 2];
+    for part in parts.iter_mut() {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u128(t);
+        h.write_u32(std::process::id());
+        *part = h.finish();
+    }
+    format!("{:016x}{:016x}", parts[0], parts[1])
 }
 
 #[async_trait::async_trait]
@@ -359,7 +377,10 @@ mod tests {
                 "BatchMode=yes",
                 "--",
                 "me@eda.example.edu",
-                &format!("mkdir -p {dir}")
+                &format!(
+                    "umask 077 && mkdir -p {} && mkdir -m 700 {dir}",
+                    dir.rsplit_once('/').unwrap().0
+                )
             ]
         );
         assert_eq!(
