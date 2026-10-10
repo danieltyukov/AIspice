@@ -320,6 +320,17 @@ impl Runner {
             return Err(RunError::Policy(msg));
         }
         let deck = absolutize_includes(&deck, &base);
+        // Check again after the rewrite, so the deck the simulator receives is
+        // exactly a deck the policy accepted.
+        let violations = netlist::check_policy(&deck, &policy);
+        if !violations.is_empty() {
+            let msg = violations
+                .iter()
+                .map(|v| format!("  {} ({})", v.reason, v.line.trim()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(RunError::Policy(msg));
+        }
 
         let run_id = format!(
             "{}-{}",

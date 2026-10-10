@@ -45,7 +45,7 @@ async fn run_script(
         )
         .await
         .unwrap();
-    
+
     events.lock().unwrap().clone()
 }
 
@@ -136,4 +136,69 @@ async fn simulate_check_specs_and_optimize_on_ngspice() {
     assert_eq!(sweep.lines().count(), 4, "{sweep}");
     let mc = &get("monte_carlo")[0];
     assert!(mc.contains("yield") || mc.contains("Yield"), "{mc}");
+}
+
+struct DenyAll;
+
+#[async_trait::async_trait]
+impl aispice_tools::Approver for DenyAll {
+    async fn approve(&self, _circuit: &str, _summary: &str, _diff: &str) -> bool {
+        false
+    }
+}
+
+/// In ask-before-apply mode, a declined approval means no tool writes
+/// anything: edits, undo, saved specs, optimized values.
+#[tokio::test(flavor = "multi_thread")]
+async fn declined_approval_blocks_every_write() {
+    if !have_ngspice() {
+        eprintln!("skipped: ngspice not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let project = Project::open(dir.path(), ProjectOptions::default()).unwrap();
+    let ws = Arc::new(Workspace::with_project(project));
+    // Build the circuit before turning approval on.
+    let edits: Value = serde_json::from_str(RC).unwrap();
+    run_script(
+        ws.clone(),
+        vec![
+            tool_reply([(
+                "a",
+                "create_schematic",
+                json!({"circuit": "rc.asc", "edits": edits}),
+            )]),
+            text_reply("ok"),
+        ],
+    )
+    .await;
+    let before = std::fs::read(dir.path().join("rc.asc")).unwrap();
+    ws.set_hooks(aispice_tools::Hooks {
+        approver: Some(Arc::new(DenyAll)),
+        after_save: None,
+    });
+    let results = run_script(
+        ws.clone(),
+        vec![
+            tool_reply([("b", "edit_schematic", json!({"circuit": "rc.asc", "edits": [{"op": "set_value", "name": "R1", "value": "2k"}]}))]),
+            tool_reply([("c", "history", json!({"circuit": "rc.asc", "action": "undo"}))]),
+            tool_reply([("d", "check_specs", json!({"circuit": "rc.asc", "specs": "bw = bandwidth_3db(V(out)) >= 1k"}))]),
+            tool_reply([("e", "optimize", json!({"circuit": "rc.asc", "params": [{"name": "R1", "min": "100", "max": "10k"}], "specs": "bw = bandwidth_3db(V(out)) in 4k..6k", "apply": true, "max_evals": 20}))]),
+            text_reply("done"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        std::fs::read(dir.path().join("rc.asc")).unwrap(),
+        before,
+        "schematic must be unchanged"
+    );
+    assert!(
+        !dir.path().join("rc.specs").exists(),
+        "specs must not be saved"
+    );
+    let text: Vec<String> = results.iter().map(|r| r.1.clone()).collect();
+    assert!(text[0].contains("declined"), "{}", text[0]);
+    assert!(text[1].contains("declined"), "{}", text[1]);
+    assert!(text[3].contains("declined"), "{}", text[3]);
 }

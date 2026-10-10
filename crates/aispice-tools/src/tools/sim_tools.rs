@@ -66,6 +66,21 @@ fn load_specs(
     Ok((specs, text))
 }
 
+/// Save specs beside the circuit, with the user's approval when the front end
+/// asks for it. Specs files are plain text and only ever `<circuit>.specs`.
+async fn save_specs(ws: &Workspace, p: &crate::project::Project, circuit: &str, text: &str) {
+    let file = specs_file(circuit);
+    if !ws
+        .approve(circuit, &format!("Save specs to {file}"), text)
+        .await
+    {
+        return;
+    }
+    if let Ok(path) = p.resolve(&file) {
+        let _ = crate::project::atomic_write(&path, text.as_bytes());
+    }
+}
+
 pub fn specs_file(circuit: &str) -> String {
     match circuit.rsplit_once('.') {
         Some((stem, _)) => format!("{stem}.specs"),
@@ -450,10 +465,9 @@ impl Tool for CheckSpecs {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
-        if input.specs.is_some() && input.save
-            && let Ok(path) = p.resolve(&specs_file(&input.circuit)) {
-                let _ = crate::project::atomic_write(&path, text.as_bytes());
-            }
+        if input.specs.is_some() && input.save {
+            save_specs(&self.ws, &p, &input.circuit, &text).await;
+        }
         let run = match self
             .ws
             .runner
@@ -628,10 +642,11 @@ impl Tool for ReadWaveform {
             })
             .collect();
         let mut t = (if axis.quantity == Quantity::Frequency {
-                "frequency"
-            } else {
-                axis.name.as_str()
-            }).to_string();
+            "frequency"
+        } else {
+            axis.name.as_str()
+        })
+        .to_string();
         for s in &input.signals {
             t.push_str(&if ac {
                 format!("\t{s} dB\t{s} deg")
@@ -960,10 +975,9 @@ impl Tool for Optimize {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
-        if input.specs.is_some() && input.save_specs
-            && let Ok(path) = p.resolve(&specs_file(&input.circuit)) {
-                let _ = crate::project::atomic_write(&path, spec_source.as_bytes());
-            }
+        if input.specs.is_some() && input.save_specs {
+            save_specs(&self.ws, &p, &input.circuit, &spec_source).await;
+        }
         let (netlist, std_libs, _) = match self.ws.runner.netlist_for(&p, &input.circuit) {
             Ok(v) => v,
             Err(e) => return ToolOutput::error(e.to_string()),
@@ -1070,8 +1084,28 @@ impl Tool for Optimize {
                     value: units::format(*v),
                 })
                 .collect();
+            let summary = ops
+                .iter()
+                .map(|o| match o {
+                    EditOp::SetValue { name, value } => format!("{name} = {value}"),
+                    other => format!("{other:?}"),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
             match p.load(&input.circuit) {
                 Ok((mut sch, _)) => match apply(&mut sch, p.library(), &ops) {
+                    Ok(_)
+                        if !self
+                            .ws
+                            .approve(
+                                &input.circuit,
+                                &format!("Apply optimized values: {summary}"),
+                                &summary,
+                            )
+                            .await =>
+                    {
+                        t.push_str("The user declined applying these values; the schematic is unchanged.\n");
+                    }
                     Ok(_) => match p.save(&input.circuit, &sch, "Optimized values") {
                         Ok(_) => {
                             if let Ok(path) = p.resolve(&input.circuit) {

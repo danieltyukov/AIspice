@@ -399,6 +399,16 @@ impl Tool for History {
             Err(e) => return e,
         };
         let ws = self.ws.clone();
+        let action = match input.action {
+            HistoryAction::List => None,
+            HistoryAction::Undo => Some("Undo the last change"),
+            HistoryAction::Redo => Some("Redo"),
+            HistoryAction::Restore => Some("Restore an earlier version"),
+        };
+        if let Some(what) = action
+            && !ws.approve(&input.circuit, what, "").await {
+                return ToolOutput::text("The user declined; nothing was changed.");
+            }
         blocking(move || {
             let p = ws.project().map_err(|e| e.to_string())?;
             let moved = match input.action {

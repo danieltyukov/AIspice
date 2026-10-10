@@ -91,6 +91,16 @@ impl Workspace {
         self.hooks.read().expect("hooks lock").approver.clone()
     }
 
+    /// Ask the user to approve a change, when the front end asks for that
+    /// (ask-before-apply mode). Without an approver every change is allowed,
+    /// since edits are undoable. Every tool that writes goes through here.
+    pub async fn approve(&self, circuit: &str, summary: &str, diff: &str) -> bool {
+        match self.approver() {
+            Some(a) => a.approve(circuit, summary, diff).await,
+            None => true,
+        }
+    }
+
     pub fn after_save(&self, path: &Path) {
         let hook = self.hooks.read().expect("hooks lock").after_save.clone();
         if let Some(h) = hook {

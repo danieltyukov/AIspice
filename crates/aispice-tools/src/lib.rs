@@ -2,7 +2,9 @@
 //! app, the CLI and the MCP server all share.
 
 pub mod project;
+pub mod prompt;
 pub mod runner;
+pub mod setup;
 pub mod tools;
 pub mod workspace;
 
