@@ -1,5 +1,6 @@
 [package]
 name = "aispice-sim"
+description = "Simulator backends, waveform reading, measurements and optimization for aispice."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,9 +8,15 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
+keywords = ["spice", "ngspice", "ltspice", "xyce", "simulation"]
+categories = ["science", "simulation"]
 
 [dependencies]
 aispice-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
