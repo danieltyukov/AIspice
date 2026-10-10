@@ -3,45 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>aispice</title>
+    <title>aispice: design circuits by describing them</title>
     <meta
       name="description"
-      content="An open-source agent that edits LTspice schematics, simulates them with ngspice, LTspice or Xyce, and checks the results against your specs. Desktop app, CLI and MCP server. Runs on your machine with the model provider you choose."
+      content="aispice edits LTspice schematics, simulates them on ngspice, LTspice, Xyce or Spectre, and checks every change against your specs. Desktop app, CLI and MCP server. Open source, runs on your machine."
     />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f8f7f4" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e0f0f" media="(prefers-color-scheme: dark)" />
     <link rel="canonical" href="https://danieltyukov.github.io/aispice/" />
     <link rel="icon" href="../app/public/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="../app/public/apple-touch-icon.png" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="aispice" />
-    <meta property="og:title" content="aispice" />
+    <meta property="og:title" content="aispice: design circuits by describing them" />
     <meta
       property="og:description"
-      content="An agent that edits LTspice schematics, simulates them with ngspice, LTspice or Xyce, and checks the results against your specs."
+      content="An agent that edits LTspice schematics, simulates them and checks every change against your specs."
     />
     <meta property="og:url" content="https://danieltyukov.github.io/aispice/" />
     <meta property="og:image" content="https://danieltyukov.github.io/aispice/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta
-      property="og:image:alt"
-      content="The aispice mark and wordmark above the line: an agent that edits LTspice schematics, simulates them and checks the results against your specs."
-    />
+    <meta property="og:image:alt" content="The aispice mark and wordmark." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="aispice" />
+    <meta name="twitter:title" content="aispice: design circuits by describing them" />
     <meta
       name="twitter:description"
-      content="An agent that edits LTspice schematics, simulates them with ngspice, LTspice or Xyce, and checks the results against your specs."
+      content="An agent that edits LTspice schematics, simulates them and checks every change against your specs."
     />
     <meta name="twitter:image" content="https://danieltyukov.github.io/aispice/og.png" />
 
     <script>
-      // Blocking, and in the head, so a stored dark choice applies before the
-      // first paint instead of flashing light first. It reads one key and sets
-      // one attribute; tokens.css does the rest.
+      // Blocking, in the head, so a stored theme applies before first paint.
       try {
         var t = localStorage.getItem('aispice-theme');
         if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
@@ -57,10 +52,8 @@
 
     <header class="head">
       <div class="wrap head-inner">
-        <a class="brand" href="/aispice/">
-          <!-- The tile from assets/brand/mark.svg. Decoration beside the
-               wordmark, so it is hidden from assistive technology. -->
-          <svg class="mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false">
+        <a class="brand" href="/aispice/" aria-label="aispice home">
+          <svg class="mark" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true" focusable="false">
             <rect width="32" height="32" rx="7.5" fill="#0d7a68" />
             <path
               d="M6 21H10.2C12.4 21 12.6 7.8 15.2 7.8C17.6 7.8 17.5 13.6 19.8 13.6C21.7 13.6 21.8 10.1 23.5 10.1C24.9 10.1 25.3 11 26.5 11"
@@ -75,299 +68,317 @@
           <span class="wordmark">aispice</span>
         </a>
 
-        <nav class="links" aria-label="Project">
-          <a href="https://github.com/danieltyukov/aispice">GitHub</a>
+        <nav class="links" aria-label="Site">
+          <a href="#product">Product</a>
+          <a href="#use">Use it</a>
           <a href="https://github.com/danieltyukov/aispice/tree/master/docs">Docs</a>
-          <a href="https://github.com/danieltyukov/aispice/releases">Releases</a>
+          <a href="https://github.com/danieltyukov/aispice/blob/master/CHANGELOG.md">Changelog</a>
         </nav>
 
-        <button type="button" id="theme" class="toggle" aria-pressed="false">
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
-            <path d="M8 2 A6 6 0 0 0 8 14 Z" fill="currentColor" />
-          </svg>
-          <span class="toggle-label">Dark mode</span>
-        </button>
+        <div class="head-actions">
+          <a class="icon-link" href="https://github.com/danieltyukov/aispice" aria-label="aispice on GitHub">
+            <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                fill="currentColor"
+                d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+              />
+            </svg>
+          </a>
+          <button type="button" id="theme" class="icon-link" aria-pressed="false">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <path d="M8 2 A6 6 0 0 0 8 14 Z" fill="currentColor" />
+            </svg>
+            <span class="sr">Dark mode</span>
+          </button>
+          <a class="btn btn-dark btn-small" href="#download">Download</a>
+        </div>
       </div>
     </header>
 
-    <!-- tabindex="-1" so the skip link moves keyboard focus, not only the
-         viewport; otherwise the next Tab goes back into the header. -->
     <main id="main" tabindex="-1">
-      <div class="wrap">
-        <h1 class="lede">
-          aispice is an open-source agent that edits LTspice schematics, simulates them with
-          ngspice, LTspice or Xyce, and checks the results against your specs.
-        </h1>
-        <p class="sub">
-          It runs on your own machine as a desktop app, a command-line tool, or an MCP server
-          inside the coding agent you already use. ngspice is enough to start. LTspice and Xyce
-          are used when they are installed.
-        </p>
-
-        <ul class="downloads" aria-label="Downloads">
-          <li>
-            <a class="btn" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_x86_64.AppImage">
-              <span class="os">Linux</span> <span class="fmt">AppImage</span>
-            </a>
-          </li>
-          <li>
-            <a class="btn" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_amd64.deb">
-              <span class="os">Linux</span> <span class="fmt">.deb</span>
-            </a>
-          </li>
-          <li>
-            <a class="btn" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_x64-setup.exe">
-              <span class="os">Windows</span> <span class="fmt">.exe</span>
-            </a>
-          </li>
-          <li>
-            <a class="btn" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_universal.dmg">
-              <span class="os">macOS</span> <span class="fmt">.dmg</span>
-            </a>
-          </li>
-        </ul>
-
-        <div class="snippet">
-          <div class="code"><pre><code>cargo install --locked --git https://github.com/danieltyukov/aispice aispice</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
+      <section class="hero">
+        <div class="wrap hero-copy">
+          <a class="pill" href="https://github.com/danieltyukov/aispice/blob/master/CHANGELOG.md">
+            <span class="pill-tag">New</span> aispice 0.2<span class="pill-long">: Spectre, netlist to schematic, verified templates</span>
+          </a>
+          <h1>Design circuits<br />by describing them.</h1>
+          <p class="sub">
+            aispice reads your LTspice schematics, makes the change you ask for, and proves it in
+            simulation on ngspice, LTspice, Xyce or Spectre. Every edit is a diff you can undo.
+          </p>
+          <div class="cta">
+            <a class="btn btn-accent js-download" href="#download">Download</a>
+            <a class="btn btn-ghost" href="https://github.com/danieltyukov/aispice/blob/master/docs/SETUP.md">Read the docs</a>
+          </div>
+          <p class="cta-note">Free and open source. Linux, Windows and macOS. Your keys, your machine.</p>
         </div>
-        <p class="note">
-          The command line tool on its own, built from source with Rust 1.88 or newer. Prebuilt
-          binaries for each platform, and every older version, are on the
-          <a href="https://github.com/danieltyukov/aispice/releases">releases page</a>.
-        </p>
-      </div>
 
-      <figure class="shot" id="shot">
-        <img
-          class="shot-light"
-          src="/img/app-light.png"
-          width="1440"
-          height="900"
-          decoding="async"
-          alt="The aispice desktop app: circuits on the left; in the middle an RC low-pass schematic with the agent's changes outlined, above its Bode plot with two cursors; on the right the chat, where the agent changed C1, added a load resistor, shows the diff with an Undo button, and reports the specs."
-        />
-        <img
-          class="shot-dark"
-          src="/img/app-dark.png"
-          width="1440"
-          height="900"
-          loading="lazy"
-          decoding="async"
-          alt="The aispice desktop app: circuits on the left; in the middle an RC low-pass schematic with the agent's changes outlined, above its Bode plot with two cursors; on the right the chat, where the agent changed C1, added a load resistor, shows the diff with an Undo button, and reports the specs."
-        />
-      </figure>
+        <div class="hero-shot">
+          <div class="glow" aria-hidden="true"></div>
+          <figure class="window">
+            <div class="window-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+            <img
+              class="when-light"
+              src="/img/app/hero-light.webp"
+              srcset="/img/app/hero-light-1x.webp 1440w, /img/app/hero-light.webp 2880w"
+              sizes="(max-width: 1200px) 96vw, 1160px"
+              width="2880"
+              height="1800"
+              fetchpriority="high"
+              alt="The aispice desktop app. On the left, circuits in the project. In the middle, an RC low-pass schematic with the agent's changes outlined, above its Bode plot with two cursors. On the right, the chat: the agent changed C1 and added a load resistor, shows the diff with an Undo button, and checked the specs."
+            />
+            <img
+              class="when-dark"
+              src="/img/app/hero-dark.webp"
+              srcset="/img/app/hero-dark-1x.webp 1440w, /img/app/hero-dark.webp 2880w"
+              sizes="(max-width: 1200px) 96vw, 1160px"
+              width="2880"
+              height="1800"
+              loading="lazy"
+              alt="The aispice desktop app in its dark theme, showing the same schematic, Bode plot and chat."
+            />
+          </figure>
+        </div>
+      </section>
 
-      <div class="wrap">
-        <section class="section" aria-labelledby="how">
-          <h2 class="eyebrow" id="how">How it works</h2>
-          <ol class="steps">
-            <li>
-              <b>Open a folder of .asc files</b>
-              <span>Any folder with LTspice schematics in it. aispice works inside that folder and refuses any path outside it.</span>
-            </li>
-            <li>
-              <b>Ask in plain language</b>
-              <span>“Set the gain to 10 and keep the overshoot under 5 %.” “Why does this regulator ring at light load?”</span>
-            </li>
-            <li>
-              <b>The agent edits with typed operations</b>
-              <span>Add a part, set a value, connect two pins by name. It never writes raw coordinates, so a wire cannot land a grid step off its pin.</span>
-            </li>
-            <li>
-              <b>It simulates and measures</b>
-              <span>The run goes to ngspice, LTspice or Xyce, and every number it reports is measured from the resulting waveforms.</span>
-            </li>
-            <li>
-              <b>It checks your specs</b>
-              <span>Each line of your spec table is measured and shown as pass or fail, with the margin.</span>
-            </li>
-            <li>
-              <b>Every edit can be undone</b>
-              <span>Each change comes with a diff of what moved and what changed value, and one click puts the file back.</span>
-            </li>
-          </ol>
-        </section>
+      <section class="works" aria-labelledby="works-title">
+        <div class="wrap">
+          <h2 id="works-title" class="works-title">Works with the simulators and models you already use</h2>
+          <ul class="works-list">
+            <li>ngspice</li>
+            <li>LTspice</li>
+            <li>Xyce</li>
+            <li>Spectre</li>
+            <li class="sep" aria-hidden="true"></li>
+            <li>Claude</li>
+            <li>GPT</li>
+            <li>Gemini</li>
+            <li>Ollama</li>
+            <li class="sep" aria-hidden="true"></li>
+            <li>Claude Code</li>
+            <li>Cursor</li>
+          </ul>
+        </div>
+      </section>
 
-        <section class="section" aria-labelledby="features">
-          <h2 class="eyebrow" id="features">What it can do</h2>
-          <dl class="features">
-            <div>
-              <dt>Edit and wire</dt>
-              <dd>Place, move, rotate and remove parts, set values and connect pins. The router will not draw a wire that shorts two nets.</dd>
+      <section id="product" class="product">
+        <div class="wrap">
+          <div class="feature">
+            <div class="feature-copy">
+              <p class="eyebrow">Edit</p>
+              <h2>Changes you can review, not files rewritten behind your back.</h2>
+              <p>
+                The agent edits with typed operations: set a value, add a part, connect two pins.
+                aispice places and routes them so the schematic stays readable in LTspice, outlines
+                what changed, and keeps a snapshot for one-click undo.
+              </p>
+              <ul class="checks">
+                <li>Wires never short two nets</li>
+                <li>Ask before every edit, or apply and undo</li>
+                <li>Netlists identical to LTspice's own</li>
+              </ul>
             </div>
-            <div>
-              <dt>Simulate</dt>
-              <dd>ngspice, LTspice (native or under Wine) and Xyce on your machine, and Spectre on a remote server over SSH. Netlists are translated for each one.</dd>
-            </div>
-            <div>
-              <dt>Measure</dt>
-              <dd>Bandwidth, phase and gain margin, overshoot, settling, rise and fall time, THD, RMS, crossings and the value at any point.</dd>
-            </div>
-            <div>
-              <dt>Check specs</dt>
-              <dd>Write the limits once as a table of measurements and bounds. Every run is checked against it, row by row, pass or fail.</dd>
-            </div>
-            <div>
-              <dt>Sweep and test robustness</dt>
-              <dd>Parameter sweeps, Monte Carlo yield over component tolerances, and the worst case against your specs.</dd>
-            </div>
-            <div>
-              <dt>Size</dt>
-              <dd>The model picks which values to tune and their ranges. A numerical optimizer searches them with the simulator in the loop.</dd>
-            </div>
-            <div>
-              <dt>Draw from a netlist</dt>
-              <dd>Give it a SPICE netlist and it places and wires a readable LTspice schematic, then checks that the drawing netlists back to the same circuit.</dd>
-            </div>
-            <div>
-              <dt>Electrical rule checks</dt>
-              <dd>No ground, floating pins, dangling wires, shorted or parallel sources and nets with no DC path are reported before anything runs.</dd>
-            </div>
-            <div>
-              <dt>Bias point</dt>
-              <dd>The operating point of every transistor: region, current, gm, gds, gm/Id and intrinsic gain, with a note when a device that should be saturated is not.</dd>
-            </div>
-            <div>
-              <dt>Start from a template</dt>
-              <dd>Seventeen reference circuits, from an RC filter to a transimpedance amplifier, each with design equations and specs that pass in simulation.</dd>
-            </div>
-            <div>
-              <dt>Poles and zeros</dt>
-              <dd>Pole-zero analysis of a transfer function, to see why a loop rings before you start tuning it.</dd>
-            </div>
-            <div>
-              <dt>Schematic from an image</dt>
-              <dd>A screenshot or photo of a schematic becomes a netlist and then an LTspice schematic you can simulate, with a model that accepts images.</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="section" aria-labelledby="use">
-          <h2 class="eyebrow" id="use">Three ways to use it</h2>
-          <dl class="points">
-            <dt>Desktop app</dt>
-            <dd>
-              The circuit list, the schematic, waveforms with cursors, the netlist and a chat with the
-              agent in one window. Each tool call shows up as a card with its numbers and, for an
-              edit, the diff and an undo button.
-            </dd>
-            <dt>Command line</dt>
-            <dd>
-              <code>aispice sim</code> runs a schematic, <code>aispice check</code> evaluates a spec
-              table and exits non-zero when a row fails, so it can gate a CI job, and
-              <code>aispice chat</code> talks to the agent from the terminal.
-            </dd>
-            <dt>MCP server</dt>
-            <dd>
-              <code>aispice mcp</code> gives Claude Code, Cursor, Codex, Claude Desktop or any other
-              MCP client the same tools the app uses, over stdio.
-            </dd>
-          </dl>
-
-          <div class="tabset" role="group" aria-label="MCP client configuration">
-            <input type="radio" name="client" id="c-cc" checked />
-            <input type="radio" name="client" id="c-json" />
-            <input type="radio" name="client" id="c-codex" />
-            <div class="tabs">
-              <label for="c-cc">Claude Code</label>
-              <label for="c-json">Cursor, Claude Desktop</label>
-              <label for="c-codex">Codex</label>
-            </div>
-            <div class="panel p-c-cc">
-              <p class="where">Run once. Add <code>-s user</code> to make it available in every project.</p>
-              <div class="code"><pre><code>claude mcp add aispice -- aispice mcp</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
-            </div>
-            <div class="panel p-c-json">
-              <p class="where">In <code>~/.cursor/mcp.json</code> or <code>claude_desktop_config.json</code>, then restart the app.</p>
-              <div class="code"><pre><code>{
-  "mcpServers": {
-    "aispice": {
-      "command": "aispice",
-      "args": ["mcp"]
-    }
-  }
-}</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
-            </div>
-            <div class="panel p-c-codex">
-              <p class="where">Run once. It writes the entry to <code>~/.codex/config.toml</code>.</p>
-              <div class="code"><pre><code>codex mcp add aispice -- aispice mcp</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
+            <div class="feature-art stack stack-edit" aria-hidden="true">
+              <div class="card card-wide">
+                <img class="when-light" src="/img/app/schematic-light.webp" srcset="/img/app/schematic-light-1x.webp 1x, /img/app/schematic-light.webp 2x" width="1598" height="790" loading="lazy" alt="" />
+                <img class="when-dark" src="/img/app/schematic-dark.webp" srcset="/img/app/schematic-dark-1x.webp 1x, /img/app/schematic-dark.webp 2x" width="1598" height="790" loading="lazy" alt="" />
+              </div>
+              <div class="card card-float">
+                <img class="when-light" src="/img/app/diff-light.webp" srcset="/img/app/diff-light-1x.webp 1x, /img/app/diff-light.webp 2x" width="758" height="890" loading="lazy" alt="" />
+                <img class="when-dark" src="/img/app/diff-dark.webp" srcset="/img/app/diff-dark-1x.webp 1x, /img/app/diff-dark.webp 2x" width="758" height="890" loading="lazy" alt="" />
+              </div>
             </div>
           </div>
-          <p>
-            If a desktop client cannot find <code>aispice</code>, give the full path to the binary
-            as the command.
-          </p>
-        </section>
 
-        <section class="section" aria-labelledby="models">
-          <h2 class="eyebrow" id="models">Models</h2>
-          <p>
-            Use any provider you have a key for: Anthropic, OpenAI, Google, OpenRouter, Ollama, or
-            any endpoint that speaks the OpenAI chat completions API, such as LM Studio or vLLM.
-            The model list is fetched from the provider when you open the picker, so a new model
-            shows up without an aispice update.
-          </p>
-          <p>
-            Keys are stored in the operating system's keychain (Secret Service, Keychain or
-            Credential Manager), not in a plain-text config file.
-          </p>
-        </section>
+          <div class="feature feature-flip">
+            <div class="feature-copy">
+              <p class="eyebrow">Verify</p>
+              <h2>Proof, not claims.</h2>
+              <p>
+                Write your requirements once as a spec table: corner frequency, gain, phase margin,
+                ripple. After every change the agent simulates and checks each row, and tells you
+                when one fails, with the margin.
+              </p>
+              <ul class="checks">
+                <li>Bandwidth, margins, overshoot, settling, THD and more</li>
+                <li>Waveforms with cursors in the app</li>
+                <li><code>aispice check</code> fails a CI job when a spec does</li>
+              </ul>
+            </div>
+            <div class="feature-art stack stack-verify" aria-hidden="true">
+              <div class="card card-wide">
+                <img class="when-light" src="/img/app/bode-light.webp" srcset="/img/app/bode-light-1x.webp 1x, /img/app/bode-light.webp 2x" width="1598" height="708" loading="lazy" alt="" />
+                <img class="when-dark" src="/img/app/bode-dark.webp" srcset="/img/app/bode-dark-1x.webp 1x, /img/app/bode-dark.webp 2x" width="1598" height="708" loading="lazy" alt="" />
+              </div>
+              <div class="card card-float">
+                <img class="when-light" src="/img/app/specs-light.webp" srcset="/img/app/specs-light-1x.webp 1x, /img/app/specs-light.webp 2x" width="758" height="466" loading="lazy" alt="" />
+                <img class="when-dark" src="/img/app/specs-dark.webp" srcset="/img/app/specs-dark-1x.webp 1x, /img/app/specs-dark.webp 2x" width="758" height="466" loading="lazy" alt="" />
+              </div>
+            </div>
+          </div>
 
-        <section class="section" aria-labelledby="privacy">
-          <h2 class="eyebrow" id="privacy">Privacy</h2>
-          <ul class="plain">
-            <li>Runs locally. There is no account, no sign-up and no telemetry.</li>
-            <li>
-              The only network requests go to the model provider you pick. Circuit text and
-              simulation results are sent there as part of the conversation, and nowhere else.
-            </li>
-            <li>With a local model through Ollama, nothing leaves your machine.</li>
-            <li>The agent's tools are confined to the folder you opened.</li>
+          <div class="feature">
+            <div class="feature-copy">
+              <p class="eyebrow">Size</p>
+              <h2>Values from an optimizer, robustness from Monte Carlo.</h2>
+              <p>
+                The model picks what to tune and the ranges; a numerical optimizer searches them with
+                the simulator in the loop and snaps the answer to E24 values. A Monte Carlo run with
+                real tolerances then says how many builds would pass.
+              </p>
+              <ul class="checks">
+                <li>Sweeps, worst-case corners and yield</li>
+                <li>Bias point of every transistor: region, gm, gm/Id</li>
+                <li>Poles and zeros, f0 and Q</li>
+              </ul>
+            </div>
+            <div class="feature-art stack stack-size" aria-hidden="true">
+              <div class="card card-first">
+                <img class="when-light" src="/img/app/optimize-light.webp" srcset="/img/app/optimize-light-1x.webp 1x, /img/app/optimize-light.webp 2x" width="758" height="518" loading="lazy" alt="" />
+                <img class="when-dark" src="/img/app/optimize-dark.webp" srcset="/img/app/optimize-dark-1x.webp 1x, /img/app/optimize-dark.webp 2x" width="758" height="518" loading="lazy" alt="" />
+              </div>
+              <div class="card card-float">
+                <img class="when-light" src="/img/app/montecarlo-light.webp" srcset="/img/app/montecarlo-light-1x.webp 1x, /img/app/montecarlo-light.webp 2x" width="758" height="362" loading="lazy" alt="" />
+                <img class="when-dark" src="/img/app/montecarlo-dark.webp" srcset="/img/app/montecarlo-dark-1x.webp 1x, /img/app/montecarlo-dark.webp 2x" width="758" height="362" loading="lazy" alt="" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" aria-labelledby="band-title">
+        <div class="wrap band-copy">
+          <h2 id="band-title">Every change is simulated before it reaches you.</h2>
+        </div>
+        <div class="band-art" aria-hidden="true">
+          <picture class="when-light">
+            <source type="image/avif" srcset="/img/render/pcb-light.avif" />
+            <img src="/img/render/pcb-light.webp" width="2400" height="1200" loading="lazy" alt="" />
+          </picture>
+          <picture class="when-dark">
+            <source type="image/avif" srcset="/img/render/pcb-dark.avif" />
+            <img src="/img/render/pcb-dark.webp" width="2400" height="1200" loading="lazy" alt="" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="numbers" aria-label="Measured">
+        <div class="wrap numbers-grid">
+          <div>
+            <p class="num">660<span>/660</span></p>
+            <p class="num-label">schematics netlisted exactly as LTspice does</p>
+          </div>
+          <div>
+            <p class="num">4</p>
+            <p class="num-label">simulators that agree within 0.2% on the same circuit</p>
+          </div>
+          <div>
+            <p class="num">17</p>
+            <p class="num-label">reference circuits, each passing its specs in simulation</p>
+          </div>
+          <div>
+            <p class="num">12<span>/13</span></p>
+            <p class="num-label">design tasks solved by a small model in the eval suite</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="use" class="use">
+        <div class="wrap">
+          <p class="eyebrow">Use it</p>
+          <h2 class="section-title">One engine, wherever you work.</h2>
+          <div class="use-grid">
+            <article class="use-card">
+              <h3>Desktop app</h3>
+              <p>Schematic, waveforms, specs, history and the chat side by side. Opens a folder of <code>.asc</code> files.</p>
+              <a class="text-link" href="#download">Download</a>
+            </article>
+            <article class="use-card">
+              <h3>Command line</h3>
+              <p>Simulate, lint, draw a netlist as a schematic, and check specs in CI.</p>
+              <div class="code"><pre><code>aispice check amp.asc</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
+            </article>
+            <article class="use-card">
+              <h3>MCP server</h3>
+              <p>The same tools inside Claude Code, Cursor, Codex or Claude Desktop.</p>
+              <div class="code"><pre><code>claude mcp add aispice -- aispice mcp</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="faq">
+        <div class="wrap faq-grid">
+          <div>
+            <p class="eyebrow">Private by default</p>
+            <h2 class="section-title">Runs on your machine.</h2>
+            <p class="muted">
+              No account, no sign-up, no telemetry. The only requests go to the model provider you
+              choose, and with a local model through Ollama nothing leaves your computer. Keys stay in
+              the operating system's keychain, and the agent's tools are confined to the folder you
+              opened.
+            </p>
+          </div>
+          <div class="faq-list">
+            <details>
+              <summary>Do I need LTspice?</summary>
+              <p>No. ngspice works out of the box. When LTspice is installed, aispice uses its parts library and can show each edit in LTspice.</p>
+            </details>
+            <details>
+              <summary>Which models work?</summary>
+              <p>Anthropic, OpenAI, Google, OpenRouter, Ollama, or any OpenAI-compatible endpoint. Frontier models do the best multi-step design work; small local models handle reading, editing and simulating.</p>
+            </details>
+            <details>
+              <summary>Can it use my PDK?</summary>
+              <p>Yes, through Spectre over SSH: simulations run on your own server with your own models, and model files never leave it.</p>
+            </details>
+            <details>
+              <summary>Is it affiliated with Analog Devices?</summary>
+              <p>No. aispice is an independent open-source project. LTspice is a trademark of Analog Devices, Inc.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="download" class="download">
+        <div class="wrap download-inner">
+          <h2>Start with the circuit you have.</h2>
+          <p class="sub">Open a folder of LTspice schematics and ask for the first change.</p>
+          <ul class="downloads" aria-label="Downloads">
+            <li><a class="btn btn-ghost" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_x86_64.AppImage">Linux <span>AppImage</span></a></li>
+            <li><a class="btn btn-ghost" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_amd64.deb">Linux <span>.deb</span></a></li>
+            <li><a class="btn btn-ghost" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_x64-setup.exe">Windows <span>.exe</span></a></li>
+            <li><a class="btn btn-ghost" href="https://github.com/danieltyukov/aispice/releases/latest/download/aispice_universal.dmg">macOS <span>.dmg</span></a></li>
           </ul>
-        </section>
-
-        <section class="section" aria-labelledby="faq">
-          <h2 class="eyebrow" id="faq">Questions</h2>
-          <details>
-            <summary>Do I need LTspice?</summary>
-            <p>No. ngspice works out of the box. When LTspice is installed, aispice uses it for netlisting and simulation, and reloads the schematic in LTspice after an edit.</p>
-          </details>
-          <details>
-            <summary>Does it work on Linux?</summary>
-            <p>Yes. LTspice runs under Wine and aispice finds it there, or you can use ngspice or Xyce natively.</p>
-          </details>
-          <details>
-            <summary>Which models work best?</summary>
-            <p>Frontier models with tool calling do the best work on multi-step design tasks. Local models through Ollama are fine for smaller jobs such as reading a schematic, changing a value or running a simulation.</p>
-          </details>
-          <details>
-            <summary>Is it affiliated with Analog Devices?</summary>
-            <p>No. aispice is an independent open-source project. LTspice is a trademark of Analog Devices, Inc.</p>
-          </details>
-          <details>
-            <summary>Can it use my PDK?</summary>
-            <p>Yes, through Spectre over SSH: simulations run on your own server with your own models. aispice never copies model files off that server.</p>
-          </details>
-        </section>
-      </div>
+          <div class="code code-wide"><pre><code>cargo install --locked --git https://github.com/danieltyukov/aispice aispice</code></pre><button class="copy" type="button" aria-live="polite">Copy</button></div>
+          <p class="cta-note">The command line tool from source, with Rust 1.88 or newer. Every release is on <a href="https://github.com/danieltyukov/aispice/releases">GitHub</a>.</p>
+        </div>
+      </section>
     </main>
 
     <footer class="foot">
-      <div class="wrap">
-        <p>
-          <a href="https://github.com/danieltyukov/aispice">github.com/danieltyukov/aispice</a>
-          &middot;
-          <a href="https://github.com/danieltyukov/aispice/blob/master/LICENSE">MIT</a>
-        </p>
+      <div class="wrap foot-inner">
+        <div class="foot-brand">
+          <svg class="mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true" focusable="false">
+            <rect width="32" height="32" rx="7.5" fill="#0d7a68" />
+            <path d="M6 21H10.2C12.4 21 12.6 7.8 15.2 7.8C17.6 7.8 17.5 13.6 19.8 13.6C21.7 13.6 21.8 10.1 23.5 10.1C24.9 10.1 25.3 11 26.5 11" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="6" cy="21" r="2.25" fill="#fff" />
+          </svg>
+          <span>aispice</span>
+          <span class="muted">MIT License</span>
+        </div>
+        <nav class="foot-links" aria-label="Footer">
+          <a href="https://github.com/danieltyukov/aispice">GitHub</a>
+          <a href="https://github.com/danieltyukov/aispice/tree/master/docs">Docs</a>
+          <a href="https://github.com/danieltyukov/aispice/blob/master/CHANGELOG.md">Changelog</a>
+          <a href="https://github.com/danieltyukov/aispice/blob/master/SECURITY.md">Security</a>
+        </nav>
         <p class="fine">
-          Set in subsets of Instrument Sans, JetBrains Mono and Inter, each licensed under the SIL
-          Open Font License 1.1 and renamed because a subset is a modified version. Instrument
-          Sans, copyright 2022 the Instrument Sans Project Authors. JetBrains Mono, copyright 2020
-          the JetBrains Mono Project Authors. Inter, copyright 2016 the Inter Project Authors. Each
-          licence text ships beside its font file in the repository.
+          Set in subsets of Instrument Sans, JetBrains Mono and Inter under the SIL Open Font License
+          1.1, renamed because a subset is a modified version; the licences ship beside the fonts in
+          the repository. This page makes no third-party requests and sets no cookie.
         </p>
-        <p class="fine">This page makes no third-party requests and sets no cookie.</p>
       </div>
     </footer>
 
