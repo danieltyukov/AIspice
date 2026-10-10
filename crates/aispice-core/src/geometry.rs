@@ -119,16 +119,16 @@ impl Orient {
     /// Map a point given relative to a symbol's origin in its `R0` drawing to
     /// where it lands relative to the origin after this orientation.
     pub fn apply(self, p: Point) -> Point {
-        let (x, y) = if self.is_mirrored() {
-            (-p.x, p.y)
-        } else {
-            (p.x, p.y)
+        let r = match self.quarter_turns() {
+            0 => p,
+            1 => Point::new(-p.y, p.x),
+            2 => Point::new(-p.x, -p.y),
+            _ => Point::new(p.y, -p.x),
         };
-        match self.quarter_turns() {
-            0 => Point::new(x, y),
-            1 => Point::new(-y, x),
-            2 => Point::new(-x, -y),
-            _ => Point::new(y, -x),
+        if self.is_mirrored() {
+            Point::new(-r.x, r.y)
+        } else {
+            r
         }
     }
 
@@ -247,9 +247,9 @@ mod tests {
     fn mirror_then_rotate() {
         let p = Point::new(16, 96);
         assert_eq!(Orient::M0.apply(p), Point::new(-16, 96));
-        assert_eq!(Orient::M90.apply(p), Point::new(-96, -16));
+        assert_eq!(Orient::M90.apply(p), Point::new(96, 16));
         assert_eq!(Orient::M180.apply(p), Point::new(16, -96));
-        assert_eq!(Orient::M270.apply(p), Point::new(96, 16));
+        assert_eq!(Orient::M270.apply(p), Point::new(-96, -16));
     }
 
     #[test]

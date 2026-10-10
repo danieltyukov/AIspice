@@ -1,5 +1,12 @@
 Version 4
 SymbolType CELL
+LINE Normal 16 0 16 8
+LINE Normal 16 8 30 14
+LINE Normal 30 14 2 26
+LINE Normal 2 26 30 38
+LINE Normal 30 38 2 50
+LINE Normal 2 50 16 56
+LINE Normal 16 56 16 64
 WINDOW 0 36 16 Left 2
 WINDOW 3 36 48 Left 2
 SYMATTR Value R

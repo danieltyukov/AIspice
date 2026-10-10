@@ -1,5 +1,14 @@
 Version 4
 SymbolType CELL
+LINE Normal 20 14 20 82
+LINE Normal 48 0 48 22
+LINE Normal 48 22 20 22
+LINE Normal 20 74 48 74
+LINE Normal 48 74 48 96
+LINE Normal 0 64 20 64
+LINE Normal 19 64 10 68
+LINE Normal 10 68 10 60
+LINE Normal 10 60 19 64
 WINDOW 0 56 32 Left 2
 WINDOW 3 56 72 Left 2
 SYMATTR Value NJF

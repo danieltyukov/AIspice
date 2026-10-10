@@ -5,6 +5,7 @@
 
 pub mod encoding;
 pub mod geometry;
+pub mod render;
 pub mod schematic;
 pub mod symbol;
 pub mod units;

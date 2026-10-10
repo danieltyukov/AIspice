@@ -1,5 +1,19 @@
 Version 4
 SymbolType CELL
+LINE Normal -24 -10 24 -10
+LINE Normal -24 10 24 10
+CIRCLE Normal -30 -10 -18 10
+CIRCLE Normal 18 -10 30 10
+LINE Normal -48 -16 -40 -16
+LINE Normal -40 -16 -40 0
+LINE Normal -40 0 -24 0
+LINE Normal 48 -16 40 -16
+LINE Normal 40 -16 40 0
+LINE Normal 40 0 24 0
+LINE Normal -48 16 -24 16
+LINE Normal -24 16 -24 10
+LINE Normal 48 16 24 16
+LINE Normal 24 16 24 10
 WINDOW 0 0 -40 Center 2
 WINDOW 3 0 40 Center 2
 SYMATTR Value Td=50n Z0=50

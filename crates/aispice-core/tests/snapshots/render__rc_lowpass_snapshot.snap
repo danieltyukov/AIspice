@@ -1,0 +1,57 @@
+---
+source: crates/aispice-core/tests/render.rs
+expression: "render(\"rc_lowpass\", &RenderOptions::default())"
+---
+<svg xmlns="http://www.w3.org/2000/svg" class="aispice-sch" viewBox="-29 40 449 284" width="449" height="284" xml:space="preserve">
+<style>
+.aispice-sch .bg{fill:#ffffff}
+.aispice-sch text{font-family:Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif;white-space:pre}
+.aispice-sch .wire,.aispice-sch .bustap{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#2b6cb0}
+.aispice-sch .junction{fill:#2b6cb0}
+.aispice-sch .body{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#1a202c}
+.aispice-sch .fill,.aispice-sch .sym-text{fill:#1a202c}
+.aispice-sch .attr,.aispice-sch .pin-label{fill:#2d3748}
+.aispice-sch .missing .body{stroke:#c53030;stroke-dasharray:6 4}
+.aispice-sch .missing .sym-text,.aispice-sch .missing .fill{fill:#c53030}
+.aispice-sch .mark{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#1a202c}
+.aispice-sch .label{fill:#1a202c}
+.aispice-sch .directive{fill:#1a202c;font-family:Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif}
+.aispice-sch .comment{fill:#2c7a7b}
+.aispice-sch .shape{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#718096}
+.aispice-sch .pin{fill:none;stroke-width:1.5;stroke:#c53030}
+.aispice-sch .pin-dot{fill:#c53030}
+.aispice-sch .hl-box{fill:none;stroke:none}
+.aispice-sch .hl-added .body{stroke:#2f855a}
+.aispice-sch .hl-added .attr,.aispice-sch .hl-added .sym-text,.aispice-sch .hl-added .fill{fill:#2f855a}
+.aispice-sch .hl-added .hl-box{fill:rgba(47,133,90,0.14)}
+.aispice-sch .hl-removed .body{stroke:#c53030;stroke-dasharray:6 4}
+.aispice-sch .hl-removed .attr,.aispice-sch .hl-removed .sym-text,.aispice-sch .hl-removed .fill{fill:#c53030}
+.aispice-sch .hl-removed .hl-box{fill:rgba(197,48,48,0.12)}
+.aispice-sch .hl-changed .body{stroke:#b7791f}
+.aispice-sch .hl-changed .attr,.aispice-sch .hl-changed .sym-text,.aispice-sch .hl-changed .fill{fill:#b7791f}
+.aispice-sch .hl-changed .hl-box{fill:rgba(183,121,31,0.14)}
+</style>
+<rect class="bg" x="-29" y="40" width="449" height="284"/>
+<g class="wires">
+<polyline class="wire" data-wire="128,112,32,112" points="128,112 32,112"/>
+<polyline class="wire" data-wire="288,112,208,112" points="288,112 208,112"/>
+<polyline class="wire" data-wire="352,112,288,112" points="352,112 288,112"/>
+</g>
+<g class="symbols">
+<g class="symbol" data-inst="V1" data-symbol="voltage"><path class="body" d="M32 112L32 124M4 152A28 28 0 1 0 60 152A28 28 0 1 0 4 152ZM32 180L32 192M26 137L38 137M32 131L32 143M26 167L38 167"/><text class="attr name" x="56" y="119" font-size="20">V1</text><text class="attr value" x="56" y="199" font-size="20">SINE(0 1 1k) AC 1</text></g>
+<g class="symbol" data-inst="R1" data-symbol="res"><path class="body" d="M208 112L198 112L193 126L183 98L173 126L163 98L153 126L143 98L138 112L128 112"/><text class="attr name" x="168" y="91" font-size="20" text-anchor="middle">R1</text><text class="attr value" x="168" y="147" font-size="20" text-anchor="middle">1k</text></g>
+<g class="symbol" data-inst="C1" data-symbol="cap"><path class="body" d="M288 112L288 138M272 138L304 138M272 150L304 150M288 150L288 176"/><text class="attr name" x="296" y="127" font-size="20">C1</text><text class="attr value" x="296" y="175" font-size="20">100n</text></g>
+</g>
+<g class="flags">
+<g class="flag ground" data-net="0"><path class="mark" d="M32 192V200M16 200H48M22 206H42M28 212H36"/></g>
+<g class="flag ground" data-net="0"><path class="mark" d="M288 176V184M272 184H304M278 190H298M284 196H292"/></g>
+<g class="flag" data-net="out"><text class="label" x="356" y="119" font-size="20">out</text></g>
+</g>
+<g class="junctions">
+<circle class="junction" cx="288" cy="112" r="4"/>
+</g>
+<g class="texts">
+<text class="directive" x="32" y="255" font-size="20">.ac dec 50 10 1Meg</text>
+<text class="comment" x="32" y="287" font-size="20">RC low-pass, fc = 1.59 kHz</text>
+</g>
+</svg>

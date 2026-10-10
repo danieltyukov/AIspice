@@ -1,5 +1,14 @@
 Version 4
 SymbolType CELL
+LINE Normal -24 28 -24 100
+LINE Normal -24 28 24 64
+LINE Normal -24 100 24 64
+LINE Normal 24 64 32 64
+LINE Normal -32 48 -24 48
+LINE Normal -32 80 -24 80
+LINE Normal -19 48 -11 48
+LINE Normal -19 80 -11 80
+LINE Normal -15 76 -15 84
 WINDOW 0 16 32 Left 2
 WINDOW 3 16 96 Left 2
 SYMATTR Value opamp

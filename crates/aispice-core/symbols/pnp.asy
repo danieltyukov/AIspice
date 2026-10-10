@@ -1,5 +1,14 @@
 Version 4
 SymbolType CELL
+LINE Normal 0 48 20 48
+LINE Normal 20 24 20 72
+LINE Normal 20 36 64 12
+LINE Normal 64 12 64 0
+LINE Normal 20 60 64 84
+LINE Normal 64 84 64 96
+LINE Normal 31 66 43 67
+LINE Normal 43 67 38 76
+LINE Normal 38 76 31 66
 WINDOW 0 56 32 Left 2
 WINDOW 3 56 68 Left 2
 SYMATTR Value PNP
