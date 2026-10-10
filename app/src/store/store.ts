@@ -170,10 +170,9 @@ export class Store {
   async boot(): Promise<void> {
     this.unlisten?.();
     this.unlisten = this.backend.onEvent((e) => this.onBackendEvent(e));
-    const [settings, recent, keys] = await Promise.allSettled([
+    const [settings, recent] = await Promise.allSettled([
       this.backend.settings(),
       this.backend.recentProjects(),
-      this.backend.keyStatus(),
     ]);
     if (settings.status === "fulfilled") applyTheme(settings.value.theme);
     this.set({
@@ -181,8 +180,11 @@ export class Store {
       settings: settings.status === "fulfilled" ? settings.value : null,
       bootError: settings.status === "rejected" ? message(settings.reason) : null,
       recent: recent.status === "fulfilled" ? recent.value : [],
-      keys: keys.status === "fulfilled" ? keys.value : [],
     });
+    // The keychain and the simulator checks can be slow (a keychain that
+    // needs unlocking, a Wine prefix starting up), so they load after the
+    // window is usable instead of holding it on "Starting...".
+    void this.refreshKeys();
     void this.refreshDoctor();
   }
 

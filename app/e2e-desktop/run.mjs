@@ -170,6 +170,12 @@ async function step(name, fn) {
     results.push({ name, ok: false, error: String(e) });
     console.log(`FAIL ${name}: ${e}`);
     await shot(`fail-${name.replace(/\W+/g, "-")}`).catch(() => {});
+    // What the page itself knows: load state, errors caught before the
+    // interface started (public/boot.js), and the text on screen.
+    const page = await js(
+      "var r = document.getElementById('root'); return { url: location.href, ready: document.readyState, bootErrors: window.__aispiceBootErrors || null, text: r ? r.innerText.slice(0, 400) : null };",
+    ).catch((err) => ({ unavailable: String(err) }));
+    console.log(`     page: ${JSON.stringify(page)}`);
     throw e;
   }
 }

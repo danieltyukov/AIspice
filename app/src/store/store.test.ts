@@ -27,9 +27,10 @@ describe("Store", () => {
     expect(s.booted).toBe(true);
     expect(s.settings?.provider).toBe("anthropic");
     expect(s.recent).toHaveLength(3);
-    expect(s.keys.find((k) => k.id === "anthropic")?.configured).toBe(true);
     expect(seen).toHaveBeenCalled();
-    await until(() => store.get().doctor !== null);
+    // Keys and the doctor report load after boot, without holding it.
+    await until(() => store.get().keys.length > 0 && store.get().doctor !== null);
+    expect(store.get().keys.find((k) => k.id === "anthropic")?.configured).toBe(true);
   });
 
   it("opens a folder and selects the most recently changed circuit", async () => {
