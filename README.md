@@ -45,7 +45,7 @@ What the agent can do with your circuits:
 - simulate on **ngspice, LTspice, Xyce or Cadence Spectre**, and measure gain, bandwidth, phase margin, overshoot, settling time, rise time, RMS and more
 - check a spec table and report pass or fail with margins
 - sweep parameters, run Monte Carlo tolerance analysis with yield, and optimise part values to meet several specs at once
-- find poles and zeros, start from verified reference circuits, lint for wiring mistakes, and render the schematic to SVG or PNG
+- check the bias point of every transistor (region, gm, gds, gm/Id), find poles and zeros, start from 17 verified reference circuits, lint for wiring mistakes, and render the schematic to SVG or PNG
 - undo any edit; every change is saved as a snapshot
 
 Things you can ask:
@@ -107,6 +107,7 @@ Measurements:
 | `aispice show <file>` | Describe a schematic: parts, the net on every pin, directives |
 | `aispice render <file> -o <out.svg\|png>` | Draw a schematic |
 | `aispice draw <netlist> -o <out.asc>` | Lay a SPICE netlist out as a readable LTspice schematic |
+| `aispice eval` | Run the design task suite in `evals/` against one or more models and report pass rates |
 | `aispice mcp` | Serve the tools over MCP on stdio |
 | `aispice doctor` | Show simulators, LTspice's library, keys and the config file |
 | `aispice keys`, `aispice models` | Manage provider keys, list a provider's models |

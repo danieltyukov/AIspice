@@ -83,12 +83,14 @@ Where circuits meet the agent.
 | `runner` | Picks a simulator, netlists the circuit, runs it, keeps recent results |
 | `workspace` | What all tools share: the project, the runner, and hooks a front end sets (approve an edit first, reload LTspice after a save) |
 | `tools` | The tools themselves. `aispice docs tools` prints the full reference |
+| `templates` | The verified reference circuits behind the `templates` tool, embedded in the binary |
+| `eval` | The design task runner and judge behind `aispice eval` |
 | `prompt` | The system prompt |
 | `setup` | Builds a workspace and runner from the config file |
 
 ### aispice (CLI)
 
-`crates/aispice-cli`, the `aispice` binary: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `draw`, `mcp`, `doctor`, `keys`, `models` and `docs`. The MCP server uses the `rmcp` crate over stdio.
+`crates/aispice-cli`, the `aispice` binary: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `draw`, `eval`, `mcp`, `doctor`, `keys`, `models` and `docs`. The MCP server uses the `rmcp` crate over stdio.
 
 ### Desktop app
 
@@ -126,4 +128,6 @@ See [SECURITY.md](../SECURITY.md) to report a problem.
 | Agent and tools | `crates/aispice-tools/tests/`, with the scripted provider driving the real tools |
 | MCP | `crates/aispice-cli/tests/mcp.rs`, a real client over stdio |
 | Interface | `npm test -w app` (Vitest) and `npx playwright test` in `app/` against the browser mock |
+| Templates | `crates/aispice-tools/tests/templates.rs`: every template meets its specs on ngspice |
+| Model behaviour | `aispice eval`: design tasks judged by simulation, with reference solutions checked in `crates/aispice-tools/tests/eval_suite.rs` |
 | Desktop app | `npm run test:desktop -w app`: the built app driven through tauri-driver and WebKitWebDriver, with a local mock model |

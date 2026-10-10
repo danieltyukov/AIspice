@@ -10,7 +10,7 @@ A rewrite. aispice is now one Rust engine with three front ends: a desktop app, 
 
 ### Added
 
-- `aispice` command line tool: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `draw`, `mcp`, `doctor`, `keys`, `models` and `docs`.
+- `aispice` command line tool: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `draw`, `eval`, `mcp`, `doctor`, `keys`, `models` and `docs`.
 - MCP server (`aispice mcp`) exposing every tool to Claude Code, Cursor, Codex, Claude Desktop and other clients.
 - Lossless `.asc` and `.asy` reading and writing in every encoding LTspice uses.
 - A netlister that follows LTspice's own, checked against LTspice's `-netlist` output.
@@ -18,6 +18,9 @@ A rewrite. aispice is now one Rust engine with three front ends: a desktop app, 
 - Netlist to schematic: `create_schematic` and `aispice draw` lay a SPICE netlist out as a readable LTspice schematic (signal flow left to right, ground down, rails up, feedback above its stage) and refuse any drawing that does not netlist back to the input.
 - `poles_zeros` tool: pole-zero analysis of a transfer function on ngspice's `.pz`, with f0 and Q for each complex pair, the corner of each real root, and a stability verdict.
 - `operating_point` tool: the DC operating point of every MOSFET, BJT and diode on ngspice, subcircuit devices included, with region, gm, gds, gm/Id, intrinsic gain, rpi, ro and beta, and a note on devices out of saturation that look like they should be in it, such as a current-mirror output.
+- `templates` tool with 17 verified reference circuits (filters, amplifiers, references, power, oscillators, digital, sensors), each a readable LTspice schematic with design equations and a spec table that passes on ngspice.
+- `aispice eval` and a 13-task design suite in `evals/`, judged by simulation, reporting pass rate, steps, tokens and time per model.
+- Desktop app: import a SPICE netlist as a drawn schematic.
 - Simulation on ngspice, Xyce, LTspice (native or under Wine, headless with `xvfb-run`) and Cadence Spectre over SSH.
 - Measurements (gain, bandwidth, phase and gain margin, overshoot, settling, rise and fall time, RMS and more), spec tables with margins, parameter sweeps, Monte Carlo with yield, and an optimizer.
 - `aispice check` for testing circuits against their specs in CI.
