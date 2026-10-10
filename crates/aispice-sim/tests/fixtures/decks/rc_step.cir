@@ -1,0 +1,11 @@
+RC step
+* Three values of R; V(out) at 2 ms is 1 - exp(-2m/(R*1u)).
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out {R}
+C1 out 0 1u
+.param R=1k
+.step param R list 1k 2k 4k
+.tran 0 5m 0 100u
+.meas tran vend FIND V(out) AT 2m
+.meas tran vmax MAX V(out)
+.end

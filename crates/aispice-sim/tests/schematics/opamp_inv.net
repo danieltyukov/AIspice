@@ -1,0 +1,9 @@
+* opamp_inv.asc
+XU1 N001 0 out opamp Aol=100K GBW=10Meg
+Rin N001 in 1k
+Rf out N001 10k
+V1 in 0 0 AC 1
+.lib opamp.sub
+.ac dec 10 10 10Meg
+.backanno
+.end

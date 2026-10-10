@@ -1,0 +1,52 @@
+Title: Xyce step
+Date: Sat Oct 10 02:14:23 2026
+Plotname: Step Analysis: Step 1 of 2 params:  name = R value = 1000  DC Sweep: Step 2 of 3 params:  name = V1 value = 0  DC transfer characteristic
+Flags: real
+No. Variables: 4
+No. Points: 3                 
+Variables:
+	0	sweep	voltage
+	1	IN	voltage
+	2	OUT	voltage
+	3	V1#branch	current
+Values:
+0	0.00000000e+00
+	0.00000000e+00
+	0.00000000e+00
+	0.00000000e+00
+
+1	5.00000000e+00
+	5.00000000e+00
+	3.75000000e+00
+	-1.25000000e-03
+
+2	1.00000000e+01
+	1.00000000e+01
+	7.50000000e+00
+	-2.50000000e-03
+
+Plotname: Step Analysis: Step 2 of 2 params:  name = R value = 3000  DC Sweep: Step 2 of 3 params:  name = V1 value = 0  DC transfer characteristic
+Flags: real
+No. Variables: 4
+No. Points: 3                 
+Variables:
+	0	sweep	voltage
+	1	IN	voltage
+	2	OUT	voltage
+	3	V1#branch	current
+Values:
+0	0.00000000e+00
+	0.00000000e+00
+	0.00000000e+00
+	0.00000000e+00
+
+1	5.00000000e+00
+	5.00000000e+00
+	2.50000000e+00
+	-8.33333333e-04
+
+2	1.00000000e+01
+	1.00000000e+01
+	5.00000000e+00
+	-1.66666667e-03
+

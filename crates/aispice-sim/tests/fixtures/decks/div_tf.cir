@@ -1,0 +1,7 @@
+Divider tf
+* Gain 0.75, input resistance 4k, output resistance 750.
+V1 in 0 10
+R1 in out 1k
+R2 out 0 3k
+.tf V(out) V1
+.end

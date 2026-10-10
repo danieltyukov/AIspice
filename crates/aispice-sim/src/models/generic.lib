@@ -1,0 +1,73 @@
+* aispice generic model library
+*
+* Copyright (c) 2026 Daniel Tyukov. MIT licence, part of aispice.
+*
+* GENERIC MODELS. Typical datasheet-level parameters written for aispice so
+* that circuits naming common parts simulate on any simulator without a
+* vendor library. They are approximations, not manufacturer models: they
+* follow the datasheet's typical curves closely enough for design work, and
+* a vendor model should be used to confirm anything critical.
+
+* Ideal single-pole op-amp, a drop-in for the LTspice OpAmps\opamp symbol.
+* Ports: inverting input, non-inverting input, output.
+* Aol: DC open-loop gain. GBW: gain-bandwidth product in Hz.
+* A transconductance of Aol siemens into 1 ohm gives the DC gain, and the
+* shunt capacitor puts the single pole at GBW/Aol, so the gain falls to one
+* at GBW. No supply rails, no slew limit, no offset.
+.subckt opamp invin noninvin out Aol=100K GBW=10Meg
+Gopen 0 out noninvin invin {Aol}
+Rout out 0 1
+Cpole out 0 {Aol/(6.283185307179586*GBW)}
+.ends opamp
+
+* SPICE default devices, for netlists that name the generic model without
+* defining it.
+.model D D
+.model NPN NPN
+.model PNP PNP
+.model NMOS NMOS
+.model PMOS PMOS
+.model NJF NJF
+.model PJF PJF
+
+* Small-signal switching diode, 1N4148 class: VF about 0.73 V at 10 mA,
+* 2 pF at 0 V, 4 ns recovery, 100 V breakdown.
+.model 1N4148 D(Is=4n N=1.9 Rs=0.6 Cjo=2p Vj=0.65 M=0.35 Tt=5n Bv=100 Ibv=1u)
+
+* 1 A rectifier, 1N4007 class: VF about 0.95 V at 1 A, slow recovery,
+* 1000 V breakdown.
+.model 1N4007 D(Is=10n N=1.9 Rs=40m Cjo=25p Vj=0.6 M=0.38 Tt=3u Bv=1000 Ibv=5u)
+
+* Small-signal NPN, 2N3904 class: hFE about 200 at 10 mA, fT about 300 MHz,
+* Early voltage 100 V.
+.model 2N3904 NPN(Is=7f Bf=200 Nf=1 Vaf=100 Ikf=70m Ise=20f Ne=1.5 Br=4
++ Var=20 Ikr=10m Rb=10 Rc=1 Re=0.3 Cje=8p Vje=0.75 Mje=0.33 Cjc=4p Vjc=0.75
++ Mjc=0.33 Tf=400p Tr=50n Xtb=1.5 Eg=1.11 Xti=3)
+
+* Small-signal PNP, 2N3906 class, the 2N3904's complement.
+.model 2N3906 PNP(Is=7f Bf=180 Nf=1 Vaf=60 Ikf=80m Ise=20f Ne=1.5 Br=4
++ Var=20 Ikr=10m Rb=10 Rc=1 Re=0.3 Cje=9p Vje=0.75 Mje=0.33 Cjc=5p Vjc=0.75
++ Mjc=0.33 Tf=500p Tr=50n Xtb=1.5 Eg=1.11 Xti=3)
+
+* General-purpose NPN, 2N2222 class: hFE about 200 up to 150 mA, rated
+* 600 mA, fT about 300 MHz.
+.model 2N2222 NPN(Is=15f Bf=200 Nf=1 Vaf=100 Ikf=0.3 Ise=30f Ne=1.5 Br=6
++ Var=20 Ikr=50m Rb=5 Rc=0.3 Re=0.1 Cje=25p Vje=0.75 Mje=0.33 Cjc=8p Vjc=0.75
++ Mjc=0.33 Tf=400p Tr=50n Xtb=1.5 Eg=1.11 Xti=3)
+
+* Small-signal N-channel MOSFET, 2N7002 class: Vth about 2 V, about 1.6 ohm
+* at VGS = 10 V, Ciss about 45 pF. Level 1 with the default W = L.
+.model 2N7002 NMOS(Level=1 Vto=2 Kp=0.2 Lambda=0.02 Rd=0.5 Rs=0.5 Cgso=4e-7
++ Cgdo=5e-8 Cbd=10p Is=10f Pb=0.8)
+
+* Small-signal P-channel MOSFET, BSS84 class: Vth about -1.7 V, about
+* 10 ohm at VGS = -5 V.
+.model BSS84 PMOS(Level=1 Vto=-1.7 Kp=0.05 Lambda=0.02 Rd=2 Rs=2 Cgso=2e-7
++ Cgdo=3e-8 Cbd=6p Is=10f Pb=0.8)
+
+* Generic N-channel power MOSFET, 100 V 30 A class: Vth about 3 V, about
+* 45 mOhm at VGS = 10 V, Ciss about 1.6 nF. A level-1 approximation that
+* runs on every simulator, with no VDMOS model needed; the drain-bulk
+* junction stands in for the body diode when bulk is tied to source.
+.model NMOS_POWER NMOS(Level=1 Vto=3 Kp=5 Lambda=0.003 Rd=7m Rs=7m Cgso=1.5e-5
++ Cgdo=1.5e-6 Cbd=1n Is=1p Pb=0.8)

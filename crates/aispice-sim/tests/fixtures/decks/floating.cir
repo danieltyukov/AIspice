@@ -1,0 +1,9 @@
+floating node
+* C2 hangs off a node nothing else drives, so LTspice warns about it.
+V1 in 0 PULSE(0 1 0 1u 1u 1m 2m)
+R1 in out 1k
+C1 out 0 1u
+C2 float 0 1n
+.tran 0 2m 0 100u
+.four 500 V(out)
+.end

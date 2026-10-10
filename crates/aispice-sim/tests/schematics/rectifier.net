@@ -1,0 +1,10 @@
+* rectifier.asc
+V1 ac 0 SINE(0 5 50)
+D1 ac out 1N4148
+Rload out 0 1k
+C1 out 0 10µ
+.model D D
+.lib C:\users\danieltyukov\Documents\LTspiceXVII\lib\cmp\standard.dio
+.tran 0 60m 0 20u
+.backanno
+.end

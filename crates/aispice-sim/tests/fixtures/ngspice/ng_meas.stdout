@@ -1,0 +1,47 @@
+Using SPARSE 1.3 as Direct Linear Solver
+
+Note: No compatibility mode selected!
+
+
+Circuit: ngspice meas
+
+Doing analysis at TEMP = 27.000000 and TNOM = 27.000000
+
+
+Initial Transient Solution
+--------------------------
+
+Node                                   Voltage
+----                                   -------
+in                                           0
+out                                          0
+v1#branch                                    0
+
+
+No. of Data Rows : 526
+
+  Measurements for Transient Analysis
+
+
+Error: measure  never  find(AT) : out of interval
+ .meas tran never find v(out) when v(out)=5 failed!
+
+vmax                =  9.932623e-01 at=  5.000000e-03
+vend                =  8.646654e-01
+trise               =  2.197212e-03 targ=  2.302579e-03 trig=  1.053663e-04
+
+
+Total analysis time (seconds) = 0.008
+
+Total elapsed time (seconds) = 0.026 
+
+Total DRAM available = 63727.719 MB.
+DRAM currently available = 8040.004 MB.
+Maximum ngspice program size =   23.129 MB.
+Current ngspice program size =   12.863 MB.
+
+Shared ngspice pages =   10.621 MB.
+Text (code) pages =    6.156 MB.
+Stack = 0 bytes.
+Library pages =    2.254 MB.
+

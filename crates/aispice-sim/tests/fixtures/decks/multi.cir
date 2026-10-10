@@ -1,0 +1,9 @@
+Multi analyses
+* Three analyses in one run: ngspice writes three plots into one raw file.
+V1 in 0 DC 1 AC 1
+R1 in out 1k
+C1 out 0 100n
+.op
+.ac dec 2 10 100k
+.tran 100u 500u
+.end

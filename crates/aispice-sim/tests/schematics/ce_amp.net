@@ -1,0 +1,15 @@
+* ce_amp.asc
+Vcc vcc 0 12
+V2 in 0 SINE(0 10m 1k) AC 1
+Cin N001 in 10µ
+R1 vcc N001 47k
+R2 N001 0 10k
+Q1 col N001 N002 0 2N3904
+Rc vcc col 4.7k
+Re N002 0 1k
+.model NPN NPN
+.model PNP PNP
+.lib C:\users\danieltyukov\Documents\LTspiceXVII\lib\cmp\standard.bjt
+.ac dec 10 10 1Meg
+.backanno
+.end
