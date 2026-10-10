@@ -25,7 +25,7 @@ export const MAX_ZOOM = 12;
 const clampK = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k));
 
 /** Fits the whole drawing in the pane with a margin, centered. */
-export function fit(content: Box, width: number, height: number, pad = 28): View {
+export function fit(content: Box, width: number, height: number, pad = 20): View {
   if (content.width <= 0 || content.height <= 0 || width <= 0 || height <= 0) return { x: 0, y: 0, k: 1 };
   const k = clampK(Math.min((width - pad * 2) / content.width, (height - pad * 2) / content.height, 1.6));
   return {

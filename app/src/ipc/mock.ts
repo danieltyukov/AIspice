@@ -9,6 +9,7 @@
  */
 
 import { applyEvent } from "../chat/reduce";
+import { readJson, writeJson } from "../lib/storage";
 import { emptyCircuit, seedCircuits, type CircuitDef, type CircuitState } from "./mock/circuits";
 import { script, type AgentHost, type EditPlan } from "./mock/agent";
 import { unifiedDiff } from "./mock/diff";
@@ -80,6 +81,8 @@ const MODELS: Record<ProviderId, ModelInfo[]> = {
   custom: [],
 };
 
+const SETTINGS_KEY = "mock.settings";
+
 const PROVIDERS: ProviderId[] = ["anthropic", "openai", "google", "openrouter", "ollama", "custom"];
 
 export function isFastMode(): boolean {
@@ -121,6 +124,7 @@ export function createMockBackend(options: MockOptions = {}): Backend {
 
   const runs = new Map<string, { run: RunView; wave: ReturnType<CircuitDef["simulate"]>["wave"] }>();
 
+  // Settings outlive a reload, as they do with the real backend's config file.
   let settings: Settings = {
     provider: "anthropic",
     model: "claude-sonnet-4-5",
@@ -132,6 +136,7 @@ export function createMockBackend(options: MockOptions = {}): Backend {
     thinking: true,
     max_steps: 24,
     theme: "system",
+    ...readJson<Partial<Settings>>(SETTINGS_KEY, {}),
   };
 
   const keys = new Map<ProviderId, ProviderStatus["source"]>([
@@ -553,6 +558,7 @@ export function createMockBackend(options: MockOptions = {}): Backend {
         throw new Error("Max steps must be a whole number from 1 to 200.");
       }
       settings = structuredClone(s);
+      writeJson(SETTINGS_KEY, settings);
     },
 
     async keyStatus() {
