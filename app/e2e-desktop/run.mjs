@@ -96,7 +96,16 @@ writeFileSync(join(config, "aispice", "app.json"), JSON.stringify({ recent_proje
 
 // tauri-driver, which starts the app through WebKitWebDriver.
 const driverBin = existsSync(join(homedir(), ".cargo/bin/tauri-driver")) ? join(homedir(), ".cargo/bin/tauri-driver") : "tauri-driver";
-const driver = spawn(driverBin, ["--port", "4444"], { stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, XDG_CONFIG_HOME: config, XDG_DATA_HOME: data } });
+const driver = spawn(driverBin, ["--port", "4444"], { stdio: ["ignore", "inherit", "inherit"], env: {
+    ...process.env,
+    XDG_CONFIG_HOME: config,
+    XDG_DATA_HOME: data,
+    // On a Wayland desktop GTK would ignore xvfb-run's DISPLAY and open the
+    // app on the real screen; keep it on the virtual display.
+    GDK_BACKEND: "x11",
+    WAYLAND_DISPLAY: "",
+  },
+});
 const W = "http://127.0.0.1:4444";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function wd(method, path, body) {

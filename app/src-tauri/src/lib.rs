@@ -3,6 +3,8 @@
 
 mod bridge;
 mod commands;
+#[cfg(target_os = "linux")]
+mod desktop_entry;
 mod ltspice;
 mod sessions;
 mod settings;
@@ -16,6 +18,8 @@ use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    desktop_entry::prepare();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::new())
