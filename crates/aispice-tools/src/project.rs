@@ -253,37 +253,70 @@ impl Project {
         Ok(schematic::parse_bytes(&bytes))
     }
 
-    fn history_dir(&self, rel: &str) -> PathBuf {
-        let safe: String = rel
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
+    /// Create (if needed) and return a folder under the state directory,
+    /// refusing to go through any symlink: a project can ship a `.aispice`
+    /// that is a link elsewhere, and writes must never follow it.
+    pub fn state_subdir(&self, parts: &[&str]) -> Result<PathBuf, ProjectError> {
+        let mut dir = self.root.join(STATE_DIR);
+        let mut chain = vec![dir.clone()];
+        for p in parts {
+            if p.is_empty() || p.contains(['/', '\\']) || *p == "." || *p == ".." {
+                return Err(ProjectError::Outside((*p).to_string()));
+            }
+            dir = dir.join(p);
+            chain.push(dir.clone());
+        }
+        for d in &chain {
+            match std::fs::symlink_metadata(d) {
+                Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
+                    return Err(ProjectError::Other(format!(
+                        "{} is not a plain folder; refusing to write through it",
+                        d.display()
+                    )));
                 }
-            })
-            .collect();
-        self.root.join(STATE_DIR).join("history").join(safe)
+                Ok(_) => {}
+                Err(_) => std::fs::create_dir(d).map_err(|e| io(d, e))?,
+            }
+        }
+        Ok(dir)
     }
 
+    /// Read the history index. It lives inside the project, so it is treated
+    /// as untrusted: snapshot ids that are not plain `digits-digits` names are
+    /// dropped, which keeps a crafted index from pointing reads or writes
+    /// outside the history folder.
     fn read_index(&self, rel: &str) -> HistoryIndex {
-        std::fs::read(self.history_dir(rel).join("index.json"))
+        let Ok(dir) = self.state_subdir(&["history", &history_key(rel)]) else {
+            return HistoryIndex::default();
+        };
+        let mut idx: HistoryIndex = std::fs::read(dir.join("index.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        idx.snapshots.retain(|s| valid_snapshot_id(&s.id));
+        if idx.current >= idx.snapshots.len() {
+            idx.current = idx.snapshots.len().saturating_sub(1);
+        }
+        idx
     }
 
     fn write_index(&self, rel: &str, idx: &HistoryIndex) -> Result<(), ProjectError> {
-        let dir = self.history_dir(rel);
-        std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
+        let dir = self.state_subdir(&["history", &history_key(rel)])?;
         let json =
             serde_json::to_vec_pretty(idx).map_err(|e| ProjectError::Other(e.to_string()))?;
         atomic_write(&dir.join("index.json"), &json)
     }
 
-    fn snapshot_path(&self, rel: &str, id: &str) -> PathBuf {
-        self.history_dir(rel).join(format!("{id}.asc"))
+    /// Where a snapshot is stored. Goes through `state_subdir`, so neither a
+    /// read nor a write can follow a symlink out of the project, and only
+    /// well-formed ids are accepted.
+    fn snapshot_path(&self, rel: &str, id: &str) -> Result<PathBuf, ProjectError> {
+        if !valid_snapshot_id(id) {
+            return Err(ProjectError::Other(format!("invalid snapshot id `{id}`")));
+        }
+        Ok(self
+            .state_subdir(&["history", &history_key(rel)])?
+            .join(format!("{id}.asc")))
     }
 
     /// Record the file as it is now if it differs from the last snapshot
@@ -296,7 +329,8 @@ impl Project {
         let last = idx
             .snapshots
             .get(idx.current)
-            .and_then(|s| std::fs::read(self.snapshot_path(rel, &s.id)).ok());
+            .and_then(|s| self.snapshot_path(rel, &s.id).ok())
+            .and_then(|p| std::fs::read(p).ok());
         if last.as_deref() != Some(on_disk.as_slice()) {
             let summary = if idx.snapshots.is_empty() {
                 "Opened"
@@ -320,9 +354,8 @@ impl Project {
         }
         let time = now_ms();
         let id = format!("{time}-{}", idx.snapshots.len());
-        let dir = self.history_dir(rel);
-        std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
-        atomic_write(&self.snapshot_path(rel, &id), bytes)?;
+        self.state_subdir(&["history", &history_key(rel)])?;
+        atomic_write(&self.snapshot_path(rel, &id)?, bytes)?;
         idx.snapshots.push(Snapshot {
             id: id.clone(),
             time,
@@ -332,7 +365,9 @@ impl Project {
         // Keep the history bounded: 200 snapshots per circuit.
         while idx.snapshots.len() > 200 {
             let old = idx.snapshots.remove(0);
-            let _ = std::fs::remove_file(self.snapshot_path(rel, &old.id));
+            if let Ok(old_path) = self.snapshot_path(rel, &old.id) {
+                let _ = std::fs::remove_file(old_path);
+            }
             idx.current -= 1;
         }
         Ok(id)
@@ -392,7 +427,7 @@ impl Project {
             .get(to)
             .cloned()
             .ok_or(ProjectError::NoHistory(what))?;
-        let bytes = std::fs::read(self.snapshot_path(rel, &snap.id)).map_err(|e| io(&path, e))?;
+        let bytes = std::fs::read(self.snapshot_path(rel, &snap.id)?).map_err(|e| io(&path, e))?;
         atomic_write(&path, &bytes)?;
         idx.current = to;
         self.write_index(rel, &idx)?;
@@ -438,10 +473,38 @@ impl Project {
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
             .collect();
-        let dir = self.root.join(STATE_DIR).join("runs").join(safe);
-        std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
-        Ok(dir)
+        if safe.is_empty() {
+            return Err(ProjectError::Outside(run_id.to_string()));
+        }
+        self.state_subdir(&["runs", &safe])
     }
+}
+
+/// The history folder name for a circuit path: one safe path segment.
+fn history_key(rel: &str) -> String {
+    let key: String = rel
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // A key made only of dots would be `.` or `..`.
+    if key.chars().all(|c| c == '.') {
+        format!("_{key}")
+    } else {
+        key
+    }
+}
+
+fn valid_snapshot_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|c| c.is_ascii_digit() || c == '-')
+        && !id.starts_with('-')
 }
 
 fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<CircuitEntry>) {
@@ -489,22 +552,53 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<CircuitEntry>) {
 }
 
 /// Write a file by writing a sibling temporary file and renaming it over the
-/// target, so a crash never leaves a half-written schematic.
+/// target, so a crash never leaves a half-written schematic. The temporary
+/// file is created exclusively with a random name, so a symlink planted at a
+/// predictable name cannot redirect the write; rename replaces a link at the
+/// target rather than following it.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
+    use std::io::Write as _;
     let dir = path
         .parent()
         .ok_or_else(|| ProjectError::Other(format!("{} has no parent folder", path.display())))?;
-    let tmp = dir.join(format!(
-        ".{}.aispice-tmp",
-        path.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    ));
-    std::fs::write(&tmp, bytes).map_err(|e| io(&tmp, e))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        io(path, e)
-    })
+    let base = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let nonce = format!(
+        "{:x}{:x}",
+        now_ms(),
+        std::process::id() as u64
+            ^ (bytes.len() as u64).rotate_left(17)
+            ^ (path.as_os_str().len() as u64)
+    );
+    let mut last_err = None;
+    for attempt in 0..8u32 {
+        let tmp = dir.join(format!(".{base}.{nonce}{attempt}.aispice-tmp"));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(mut f) => {
+                f.write_all(bytes).and_then(|_| f.sync_all()).map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp);
+                    io(&tmp, e)
+                })?;
+                drop(f);
+                return std::fs::rename(&tmp, path).map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp);
+                    io(path, e)
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last_err = Some(e),
+            Err(e) => return Err(io(&tmp, e)),
+        }
+    }
+    Err(io(
+        path,
+        last_err.unwrap_or_else(|| std::io::Error::other("could not create a temporary file")),
+    ))
 }
 
 #[cfg(test)]
@@ -579,6 +673,36 @@ mod tests {
         assert_eq!(snaps.len(), 2);
         assert_eq!(current, 1);
         assert_eq!(snaps[0].summary, "Opened");
+    }
+
+    #[test]
+    fn crafted_history_index_cannot_escape() {
+        let (_d, p) = project();
+        let (sch, _) = p.load("rc.asc").unwrap();
+        p.save("rc.asc", &sch, "first").unwrap();
+        let dir = p.root().join(".aispice/history/rc.asc");
+        std::fs::write(dir.join("index.json"), r#"{"snapshots":[{"id":"../../../../tmp/evil","time":0,"summary":"x"},{"id":"1-0","time":0,"summary":"y"}],"current":0}"#).unwrap();
+        let (snaps, current) = p.history("rc.asc").unwrap();
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].id, "1-0");
+        assert_eq!(current, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_state_folder_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("rc.asc"), RC).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join(".aispice")).unwrap();
+        let p = Project::open(dir.path(), ProjectOptions::default()).unwrap();
+        let (sch, _) = p.load("rc.asc").unwrap();
+        assert!(p.save("rc.asc", &sch, "x").is_err());
+        assert_eq!(
+            std::fs::read_dir(outside.path()).unwrap().count(),
+            0,
+            "nothing written through the link"
+        );
     }
 
     #[test]

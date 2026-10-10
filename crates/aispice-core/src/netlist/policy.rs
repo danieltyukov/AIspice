@@ -94,6 +94,24 @@ const ALLOWED: &[&str] = &[
 /// Dot-commands whose first argument is a file to read.
 const INCLUDES: &[&str] = &[".include", ".inc", ".lib"];
 
+/// First words that switch a deck into another simulator's own language or
+/// run programs there (Spectre's `simulator lang=spectre`, `ahdl_include`,
+/// `shell`, bare `include`). A SPICE deck has no business using them.
+const FOREIGN: &[&str] = &[
+    "simulator",
+    "ahdl_include",
+    "include",
+    "shell",
+    "library",
+    "section",
+    "endsection",
+    "pre_osdi",
+    "codemodel",
+];
+
+/// Included files larger than this are refused rather than read.
+const MAX_INCLUDE_BYTES: u64 = 16 * 1024 * 1024;
+
 /// Includes are followed this deep.
 const MAX_INCLUDE_DEPTH: usize = 8;
 
@@ -120,15 +138,32 @@ fn check_inner(
     seen: &mut Vec<PathBuf>,
     out: &mut Vec<Violation>,
 ) {
+    // C-based simulators stop reading a line at NUL, and other control
+    // characters are handled differently by each reader. Either can make the
+    // simulator see a line this check did not, so they are refused outright.
+    if let Some(c) = text
+        .chars()
+        .find(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t' | '\u{85}'))
+    {
+        out.push(Violation {
+            line: String::new(),
+            reason: format!(
+                "the deck contains a control character (U+{:04X}); remove it",
+                c as u32
+            ),
+        });
+        return;
+    }
     let mut logical: Vec<String> = Vec::new();
     for raw in text.split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']) {
         let line = raw.trim();
         if let Some(cont) = line.strip_prefix('+')
-            && let Some(last) = logical.last_mut() {
-                last.push(' ');
-                last.push_str(cont.trim());
-                continue;
-            }
+            && let Some(last) = logical.last_mut()
+        {
+            last.push(' ');
+            last.push_str(cont.trim());
+            continue;
+        }
         logical.push(line.to_string());
     }
     let mut in_control = false;
@@ -153,6 +188,10 @@ fn check_inner(
         if in_control {
             continue;
         }
+        if FOREIGN.contains(&first) {
+            out.push(Violation { line: line.clone(), reason: format!("`{first}` belongs to another simulator's language and can load code or run programs; it is not allowed in a SPICE deck") });
+            continue;
+        }
         if first.starts_with('.') && !ALLOWED.contains(&first) {
             out.push(Violation {
                 line: line.clone(),
@@ -161,32 +200,65 @@ fn check_inner(
             continue;
         }
         if INCLUDES.contains(&first)
-            && let Some(arg) = path_argument(line) {
-                match resolve(&arg, base, policy) {
-                    Err(reason) => out.push(Violation {
-                        line: line.clone(),
-                        reason,
-                    }),
-                    Ok(Some(file)) if depth < MAX_INCLUDE_DEPTH && !seen.contains(&file) => {
-                        seen.push(file.clone());
-                        if let Ok(bytes) = std::fs::read(&file) {
-                            let (inc, _) = crate::encoding::decode(&bytes);
-                            let inc_base = file
-                                .parent()
-                                .map(Path::to_path_buf)
-                                .unwrap_or_else(|| base.to_path_buf());
-                            let before = out.len();
-                            check_inner(&inc, policy, &inc_base, false, depth + 1, seen, out);
-                            for v in &mut out[before..] {
-                                v.reason = format!("in {}: {}", file.display(), v.reason);
-                            }
-                        }
+            && let Some(arg) = path_argument(line)
+        {
+            match resolve(&arg, base, policy) {
+                Err(reason) => out.push(Violation {
+                    line: line.clone(),
+                    reason,
+                }),
+                Ok(Some(file)) if !seen.contains(&file) => {
+                    seen.push(file.clone());
+                    if depth >= MAX_INCLUDE_DEPTH {
+                        out.push(Violation {
+                            line: line.clone(),
+                            reason: format!("includes nest deeper than {MAX_INCLUDE_DEPTH} levels"),
+                        });
+                        continue;
                     }
-                    Ok(_) => {}
+                    let size = std::fs::metadata(&file)
+                        .map(|m| m.len())
+                        .unwrap_or(u64::MAX);
+                    let bytes = if size <= MAX_INCLUDE_BYTES {
+                        std::fs::read(&file).ok()
+                    } else {
+                        None
+                    };
+                    let Some(bytes) = bytes else {
+                        out.push(Violation {
+                                line: line.clone(),
+                                reason: format!(
+                                    "{} could not be read for checking (no permission, or larger than 16 MiB)",
+                                    file.display()
+                                ),
+                            });
+                        continue;
+                    };
+                    let (inc, _) = crate::encoding::decode(&bytes);
+                    let inc_base = file
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(|| base.to_path_buf());
+                    let before = out.len();
+                    check_inner(&inc, policy, &inc_base, false, depth + 1, seen, out);
+                    for v in &mut out[before..] {
+                        v.reason = format!("in {}: {}", file.display(), v.reason);
+                    }
                 }
+                Ok(_) => {}
             }
+        }
         // Any value that names a file, on any line: `file=...`, `wavefile=...`,
         // and anything containing a path separator.
+        if lower
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .any(|t| t.starts_with("cmd=") || t == "cmd")
+        {
+            out.push(Violation {
+                line: line.clone(),
+                reason: "`cmd=` runs a program in some simulators; it is not allowed".into(),
+            });
+        }
         for value in path_like_values(line) {
             if let Err(reason) = resolve(&value, base, policy) {
                 out.push(Violation {
@@ -304,13 +376,19 @@ fn resolve(path: &str, base: &Path, policy: &Policy) -> Result<Option<PathBuf>, 
             if inside { Ok(Some(real)) } else { outside() }
         }
         // Not there: an absolute path must still be lexically inside an
-        // allowed folder; a bare relative name is a library-path lookup.
+        // allowed folder. A bare file name is a lookup on the simulator's own
+        // library path, which only holds allowed folders. A relative path with
+        // folders in it must exist, so the simulator cannot resolve it
+        // somewhere this check did not look.
         Err(_) if p.is_absolute() => {
             let inside = std::iter::once(&policy.base_dir)
                 .chain(policy.allowed_dirs.iter())
                 .any(|d| p.starts_with(d));
             if inside { Ok(None) } else { outside() }
         }
+        Err(_) if path.contains(['/', '\\']) => Err(format!(
+            "`{path}` does not exist in the project; reference an existing file or a bare library name"
+        )),
         Err(_) => Ok(None),
     }
 }
@@ -398,6 +476,43 @@ mod tests {
         std::os::unix::fs::symlink(&secret, &link).unwrap();
         let v = check("t\n.include models/key\n", &policy_at(&d));
         assert_eq!(v.len(), 1, "{v:?}");
+    }
+
+    #[test]
+    fn foreign_language_statements_and_control_chars_are_refused() {
+        let d = temp("foreign");
+        for deck in [
+            "t\nsimulator lang=spectre\n",
+            "t\nahdl_include \"x.va\"\n",
+            "t\nshell1 shell cmd=\"id\"\n",
+            "t\ninclude \"x.scs\"\n",
+            "t\nR1 a 0 1k\u{0}\n",
+            "t\nR1 a 0 1k\u{1b}[2J\n",
+        ] {
+            assert!(!check(deck, &policy_at(&d)).is_empty(), "{deck:?}");
+        }
+    }
+
+    #[test]
+    fn missing_relative_paths_with_folders_are_refused() {
+        let d = temp("missing");
+        assert!(!check("t\n.include models/none.lib\n", &policy_at(&d)).is_empty());
+        assert!(!check("t\n.lib sub\\none.lib\n", &policy_at(&d)).is_empty());
+        assert!(check("t\n.lib none.lib\n", &policy_at(&d)).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_includes_fail_closed() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = temp("unreadable");
+        let f = d.join("locked.lib");
+        std::fs::write(&f, ".control\n.endc\n").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let readable_anyway = std::fs::read(&f).is_ok(); // running as root
+        let v = check("t\n.include locked.lib\n", &policy_at(&d));
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!v.is_empty() || readable_anyway);
     }
 
     #[test]

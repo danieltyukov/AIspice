@@ -1,0 +1,177 @@
+name: CI
+
+# Standard GitHub-hosted runners throughout: Actions minutes are free and
+# unmetered on a public repository with standard runners, and a larger runner
+# bills even there, so `runs-on` never names one.
+
+# Pushes to master and every pull request. A branch with no pull request can be
+# run from the Actions tab, which is what workflow_dispatch is for; running on
+# every branch push as well would run each pull request twice.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second push to the same ref cancels the first; only the last commit's
+# result matters.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  engine:
+    name: Engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The engine crates have no Tauri dependency and no system libraries,
+      # so this job needs no WebKitGTK and runs on all three systems.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-engine-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-engine-${{ matrix.os }}-
+
+      # ngspice makes the simulator tests real rather than skipped. Tests that
+      # need a simulator check for it at run time, so Windows, where there is
+      # no packaged ngspice, still runs everything else.
+      - name: Install ngspice (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ngspice
+
+      - name: Install ngspice (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ngspice
+
+      # The whole workspace, app shell included: formatting needs no compiling.
+      - name: Format
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test
+
+  shell:
+    name: Desktop shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-shell-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-shell-
+
+      - name: Install the WebKitGTK toolchain, ngspice and a WebDriver
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            webkit2gtk-driver xvfb ngspice
+
+      - run: npm ci
+
+      - name: Clippy (shell)
+        run: cargo clippy -p aispice-app --all-targets -- -D warnings
+
+      # The real binary with the real backend, driven through WebKitWebDriver
+      # under a virtual display. This is the end-to-end test that covers the
+      # IPC layer the mocked interface tests cannot.
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+
+      - name: Desktop end-to-end
+        run: xvfb-run -a npm run test:desktop -w app
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-e2e
+          path: app/e2e-desktop/output/
+          retention-days: 7
+
+  interface:
+    name: Interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck -w app
+
+      - name: Lint
+        run: npm run lint -w app
+
+      # Against the in-browser mock backend: no Rust, no simulator, no network.
+      - name: Unit tests
+        run: npm test -w app
+
+      - name: Build the app
+        run: npm run build -w app
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: app
+
+      - name: Playwright
+        run: npm run test:e2e -w app
+
+      - name: Build the site
+        run: npm run build -w site
+
+      - name: Upload the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: app/playwright-report/
+          retention-days: 7
