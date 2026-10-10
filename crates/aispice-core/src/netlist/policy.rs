@@ -308,15 +308,30 @@ const FILE_KEYS: &[&str] = &[
 /// Values on a line that are, or look like, file paths.
 fn path_like_values(line: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let tokens: Vec<&str> = line
-        .split(|c: char| c.is_whitespace() || c == ',' || c == '(' || c == ')')
-        .filter(|t| !t.is_empty())
-        .collect();
-    for (i, t) in tokens.iter().enumerate() {
+    let is_sep = |c: char| c.is_whitespace() || c == ',' || c == '(' || c == ')';
+    // Tokens with the character just before each, so `V(out)/V(in)` can be
+    // told apart from a path: there `/V` follows `)` and is a division.
+    let mut tokens: Vec<(&str, Option<char>)> = Vec::new();
+    let mut start = None;
+    for (i, c) in line
+        .char_indices()
+        .chain(std::iter::once((line.len(), ' ')))
+    {
+        match (start, is_sep(c)) {
+            (None, false) => start = Some(i),
+            (Some(st), true) => {
+                tokens.push((&line[st..i], line[..st].chars().next_back()));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    for (i, &(t, before)) in tokens.iter().enumerate() {
+        let divides = before == Some(')') && t.starts_with('/');
         let (key, value) = match t.split_once('=') {
             Some((k, "")) => (
                 k.to_ascii_lowercase(),
-                tokens.get(i + 1).copied().unwrap_or("").to_string(),
+                tokens.get(i + 1).map_or("", |&(t, _)| t).to_string(),
             ),
             Some((k, v)) => (k.to_ascii_lowercase(), v.to_string()),
             None => (String::new(), t.to_string()),
@@ -326,7 +341,9 @@ fn path_like_values(line: &str) -> Vec<String> {
             || value.contains('\\')
             || value.starts_with('~')
             || is_drive_path(&value);
-        if FILE_KEYS.contains(&key.as_str()) || (looks_like_path && !value.contains('{')) {
+        if FILE_KEYS.contains(&key.as_str())
+            || (looks_like_path && !divides && !value.contains('{'))
+        {
             out.push(value);
         }
     }
@@ -534,5 +551,32 @@ mod tests {
         let d = temp("sep");
         assert!(!check("t\nR1 a 0 1\r.control\rshell id\r.endc\n", &policy_at(&d)).is_empty());
         assert!(!check("t\nR1 a 0 1\u{2028}.control\u{2028}.endc\n", &policy_at(&d)).is_empty());
+    }
+
+    /// Was a false positive: in `V(out)/V(in)` the tokenizer saw `/V` and
+    /// refused it as an absolute path, so a live model could not write a
+    /// gain measurement. Real file references must still be refused.
+    #[test]
+    fn division_in_expressions_is_not_a_path() {
+        for ok in [
+            ".meas AC gain FIND mag(V(out))/mag(V(in)) AT 1k",
+            ".meas TRAN r PARAM V(a)/V(b)",
+            "B1 x 0 V=V(a)/V(b)",
+            "E1 x 0 value={V(a)/2}",
+        ] {
+            assert!(
+                check_lexical(ok).is_empty(),
+                "{ok}: {:?}",
+                check_lexical(ok)
+            );
+        }
+        for bad in [
+            ".include /etc/passwd",
+            "V1 a 0 wavefile=/etc/passwd",
+            ".lib (/etc/passwd)",
+            "V1 a 0 PWL file=/etc/x",
+        ] {
+            assert!(!check_lexical(bad).is_empty(), "{bad} was allowed");
+        }
     }
 }
