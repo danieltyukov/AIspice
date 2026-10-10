@@ -41,6 +41,7 @@ What the agent can do with your circuits:
 
 - read a schematic as parts, the net on every pin and the directives, so it reasons about circuits and not coordinates
 - edit with typed operations (add, remove, move, rotate, set values, connect pins, label nets, change directives); aispice places parts and routes wires so the result stays readable in LTspice
+- turn a SPICE netlist, or a circuit it reads from a picture, into a readable LTspice schematic, checked to netlist back to the same circuit
 - simulate on **ngspice, LTspice, Xyce or Cadence Spectre**, and measure gain, bandwidth, phase margin, overshoot, settling time, rise time, RMS and more
 - check a spec table and report pass or fail with margins
 - sweep parameters, run Monte Carlo tolerance analysis with yield, and optimise part values to meet several specs at once
@@ -105,6 +106,7 @@ Measurements:
 | `aispice lint <file>` | Report wiring problems; exits 1 on errors |
 | `aispice show <file>` | Describe a schematic: parts, the net on every pin, directives |
 | `aispice render <file> -o <out.svg\|png>` | Draw a schematic |
+| `aispice draw <netlist> -o <out.asc>` | Lay a SPICE netlist out as a readable LTspice schematic |
 | `aispice mcp` | Serve the tools over MCP on stdio |
 | `aispice doctor` | Show simulators, LTspice's library, keys and the config file |
 | `aispice keys`, `aispice models` | Manage provider keys, list a provider's models |

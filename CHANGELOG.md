@@ -4,21 +4,19 @@ All notable changes to aispice are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
-### Added
-
-- `poles_zeros` tool: pole-zero analysis of a transfer function on ngspice's `.pz`, with f0 and Q for each complex pair, the corner of each real root, and a stability verdict.
-
 ## [0.2.0]
 
 A rewrite. aispice is now one Rust engine with three front ends: a desktop app, a command line tool and an MCP server.
 
 ### Added
 
-- `aispice` command line tool: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `mcp`, `doctor`, `keys`, `models` and `docs`.
+- `aispice` command line tool: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `draw`, `mcp`, `doctor`, `keys`, `models` and `docs`.
 - MCP server (`aispice mcp`) exposing every tool to Claude Code, Cursor, Codex, Claude Desktop and other clients.
 - Lossless `.asc` and `.asy` reading and writing in every encoding LTspice uses.
 - A netlister that follows LTspice's own, checked against LTspice's `-netlist` output.
 - Typed schematic edits with automatic placement and wire routing, a semantic diff after each edit, and undo through snapshots.
+- Netlist to schematic: `create_schematic` and `aispice draw` lay a SPICE netlist out as a readable LTspice schematic (signal flow left to right, ground down, rails up, feedback above its stage) and refuse any drawing that does not netlist back to the input.
+- `poles_zeros` tool: pole-zero analysis of a transfer function on ngspice's `.pz`, with f0 and Q for each complex pair, the corner of each real root, and a stability verdict.
 - Simulation on ngspice, Xyce, LTspice (native or under Wine, headless with `xvfb-run`) and Cadence Spectre over SSH.
 - Measurements (gain, bandwidth, phase and gain margin, overshoot, settling, rise and fall time, RMS and more), spec tables with margins, parameter sweeps, Monte Carlo with yield, and an optimizer.
 - `aispice check` for testing circuits against their specs in CI.

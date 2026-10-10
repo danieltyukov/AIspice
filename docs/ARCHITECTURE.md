@@ -38,6 +38,7 @@ Pure computation over files: no processes and no network.
 | `geometry` | Grid points, LTspice's rotate-then-mirror orientations, segment indexing for connectivity |
 | `netlist` | Schematic to SPICE netlist, following LTspice's own netlister: net naming, pin order, model cards, hierarchy. `policy` checks every netlist before a simulator sees it |
 | `edit` | Typed edit operations (add, remove, move, rotate, set value or attribute, connect pins, label nets, directives) with automatic placement and wire routing |
+| `layout` | Netlist to schematic: places parts by circuit conventions (signal left to right, ground down, rails up, transistor stacks in columns), routes wires on a grid, tries several strategies and keeps the best one that netlists back to the input |
 | `lint` | Rule checks for what makes a simulation fail or mislead: no ground, floating pins, nets with no DC path, shorted parts and sources, sources in parallel, missing values or analysis, duplicate names; readability checks (off-grid, overlapping parts) as information |
 | `summary`, `diff` | What the agent reads: parts with the net on every pin, and a semantic diff after an edit |
 | `render` | SVG and PNG drawings of schematics |
@@ -87,7 +88,7 @@ Where circuits meet the agent.
 
 ### aispice (CLI)
 
-`crates/aispice-cli`, the `aispice` binary: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `mcp`, `doctor`, `keys`, `models` and `docs`. The MCP server uses the `rmcp` crate over stdio.
+`crates/aispice-cli`, the `aispice` binary: `chat`, `sim`, `check`, `netlist`, `lint`, `show`, `render`, `draw`, `mcp`, `doctor`, `keys`, `models` and `docs`. The MCP server uses the `rmcp` crate over stdio.
 
 ### Desktop app
 
