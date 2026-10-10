@@ -1,0 +1,107 @@
+---
+source: crates/aispice-core/tests/render.rs
+expression: "render(\"res_orientations\", &opts)"
+---
+<svg xmlns="http://www.w3.org/2000/svg" class="aispice-sch" viewBox="-16 -12 1529 584" width="1529" height="584" xml:space="preserve">
+<style>
+.aispice-sch .bg{fill:#ffffff}
+.aispice-sch text{font-family:Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif;white-space:pre}
+.aispice-sch .wire,.aispice-sch .bustap{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#2b6cb0}
+.aispice-sch .junction{fill:#2b6cb0}
+.aispice-sch .body{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#1a202c}
+.aispice-sch .fill,.aispice-sch .sym-text{fill:#1a202c}
+.aispice-sch .attr,.aispice-sch .pin-label{fill:#2d3748}
+.aispice-sch .missing .body{stroke:#c53030;stroke-dasharray:6 4}
+.aispice-sch .missing .sym-text,.aispice-sch .missing .fill{fill:#c53030}
+.aispice-sch .mark{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#1a202c}
+.aispice-sch .label{fill:#1a202c}
+.aispice-sch .directive{fill:#1a202c;font-family:Arial, Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif}
+.aispice-sch .comment{fill:#2c7a7b}
+.aispice-sch .shape{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:#718096}
+.aispice-sch .pin{fill:none;stroke-width:1.5;stroke:#c53030}
+.aispice-sch .pin-dot{fill:#c53030}
+.aispice-sch .hl-box{fill:none;stroke:none}
+.aispice-sch .hl-added .body{stroke:#2f855a}
+.aispice-sch .hl-added .attr,.aispice-sch .hl-added .sym-text,.aispice-sch .hl-added .fill{fill:#2f855a}
+.aispice-sch .hl-added .hl-box{fill:rgba(47,133,90,0.14)}
+.aispice-sch .hl-removed .body{stroke:#c53030;stroke-dasharray:6 4}
+.aispice-sch .hl-removed .attr,.aispice-sch .hl-removed .sym-text,.aispice-sch .hl-removed .fill{fill:#c53030}
+.aispice-sch .hl-removed .hl-box{fill:rgba(197,48,48,0.12)}
+.aispice-sch .hl-changed .body{stroke:#b7791f}
+.aispice-sch .hl-changed .attr,.aispice-sch .hl-changed .sym-text,.aispice-sch .hl-changed .fill{fill:#b7791f}
+.aispice-sch .hl-changed .hl-box{fill:rgba(183,121,31,0.14)}
+</style>
+<rect class="bg" x="-16" y="-12" width="1529" height="584"/>
+<g class="symbols">
+<g class="symbol" data-inst="R1" data-symbol="res"><path class="body" d="M96 104L96 114L110 119L82 129L110 139L82 149L110 159L82 169L96 174L96 184"/><text class="attr name" x="116" y="135" font-size="20">R1</text><text class="attr value" x="116" y="171" font-size="20">1k</text></g>
+<g class="symbol" data-inst="R2" data-symbol="res"><path class="body" d="M328 144L318 144L313 158L303 130L293 158L283 130L273 158L263 130L258 144L248 144"/><text class="attr name" x="304" y="171" font-size="20" text-anchor="end" transform="rotate(-90 304 164)">R2</text><text class="attr value" x="268" y="171" font-size="20" text-anchor="end" transform="rotate(-90 268 164)">2k</text></g>
+<g class="symbol" data-inst="R3" data-symbol="res"><path class="body" d="M480 184L480 174L466 169L494 159L466 149L494 139L466 129L494 119L480 114L480 104"/><text class="attr name" x="460" y="167" font-size="20" text-anchor="end">R3</text><text class="attr value" x="460" y="131" font-size="20" text-anchor="end">3k</text></g>
+<g class="symbol" data-inst="R4" data-symbol="res"><path class="body" d="M632 144L642 144L647 130L657 158L667 130L677 158L687 130L697 158L702 144L712 144"/><text class="attr name" x="656" y="131" font-size="20" transform="rotate(-90 656 124)">R4</text><text class="attr value" x="692" y="131" font-size="20" transform="rotate(-90 692 124)">4k</text></g>
+<g class="symbol" data-inst="R5" data-symbol="res"><path class="body" d="M864 104L864 114L850 119L878 129L850 139L878 149L850 159L878 169L864 174L864 184"/><text class="attr name" x="844" y="135" font-size="20" text-anchor="end">R5</text><text class="attr value" x="844" y="171" font-size="20" text-anchor="end">5k</text></g>
+<g class="symbol" data-inst="R6" data-symbol="res"><path class="body" d="M1016 144L1026 144L1031 158L1041 130L1051 158L1061 130L1071 158L1081 130L1086 144L1096 144"/><text class="attr name" x="1040" y="171" font-size="20" text-anchor="end" transform="rotate(-90 1040 164)">R6</text><text class="attr value" x="1076" y="171" font-size="20" text-anchor="end" transform="rotate(-90 1076 164)">6k</text></g>
+<g class="symbol" data-inst="R7" data-symbol="res"><path class="body" d="M1248 184L1248 174L1262 169L1234 159L1262 149L1234 139L1262 129L1234 119L1248 114L1248 104"/><text class="attr name" x="1268" y="167" font-size="20">R7</text><text class="attr value" x="1268" y="131" font-size="20">7k</text></g>
+<g class="symbol" data-inst="R8" data-symbol="res"><path class="body" d="M1480 144L1470 144L1465 130L1455 158L1445 130L1435 158L1425 130L1415 158L1410 144L1400 144"/><text class="attr name" x="1456" y="131" font-size="20" transform="rotate(-90 1456 124)">R8</text><text class="attr value" x="1420" y="131" font-size="20" transform="rotate(-90 1420 124)">8k</text></g>
+<g class="symbol" data-inst="R9" data-symbol="res"><path class="body" d="M96 392L96 402L110 407L82 417L110 427L82 437L110 447L82 457L96 462L96 472"/><text class="attr name" x="116" y="423" font-size="20">R9</text><text class="attr value" x="116" y="459" font-size="20">9k</text></g>
+<g class="symbol" data-inst="R10" data-symbol="res"><path class="body" d="M328 432L318 432L313 446L303 418L293 446L283 418L273 446L263 418L258 432L248 432"/><text class="attr name" x="288" y="411" font-size="20" text-anchor="middle">R10</text><text class="attr value" x="288" y="467" font-size="20" text-anchor="middle">10k</text></g>
+<g class="symbol" data-inst="R11" data-symbol="res"><path class="body" d="M480 472L480 462L466 457L494 447L466 437L494 427L466 417L494 407L480 402L480 392"/><text class="attr name" x="460" y="419" font-size="20" text-anchor="end">R11</text><text class="attr value" x="460" y="455" font-size="20" text-anchor="end">11k</text></g>
+<g class="symbol" data-inst="R12" data-symbol="res"><path class="body" d="M632 432L642 432L647 418L657 446L667 418L677 446L687 418L697 446L702 432L712 432"/><text class="attr name" x="672" y="411" font-size="20" text-anchor="middle">R12</text><text class="attr value" x="672" y="467" font-size="20" text-anchor="middle">12k</text></g>
+<g class="symbol" data-inst="R13" data-symbol="res"><path class="body" d="M864 392L864 402L850 407L878 417L850 427L878 437L850 447L878 457L864 462L864 472"/><text class="attr name" x="844" y="423" font-size="20" text-anchor="end">R13</text><text class="attr value" x="844" y="459" font-size="20" text-anchor="end">13k</text></g>
+<g class="symbol" data-inst="R14" data-symbol="res"><path class="body" d="M1016 432L1026 432L1031 446L1041 418L1051 446L1061 418L1071 446L1081 418L1086 432L1096 432"/><text class="attr name" x="1056" y="411" font-size="20" text-anchor="middle">R14</text><text class="attr value" x="1056" y="467" font-size="20" text-anchor="middle">14k</text></g>
+<g class="symbol" data-inst="R15" data-symbol="res"><path class="body" d="M1248 472L1248 462L1262 457L1234 447L1262 437L1234 427L1262 417L1234 407L1248 402L1248 392"/><text class="attr name" x="1268" y="419" font-size="20">R15</text><text class="attr value" x="1268" y="455" font-size="20">15k</text></g>
+<g class="symbol" data-inst="R16" data-symbol="res"><path class="body" d="M1480 432L1470 432L1465 418L1455 446L1445 418L1435 446L1425 418L1415 446L1410 432L1400 432"/><text class="attr name" x="1440" y="411" font-size="20" text-anchor="middle">R16</text><text class="attr value" x="1440" y="467" font-size="20" text-anchor="middle">16k</text></g>
+</g>
+<g class="junctions">
+<rect class="pin" x="93" y="101" width="6" height="6"/>
+<rect class="pin" x="93" y="181" width="6" height="6"/>
+<rect class="pin" x="93" y="389" width="6" height="6"/>
+<rect class="pin" x="93" y="469" width="6" height="6"/>
+<rect class="pin" x="245" y="141" width="6" height="6"/>
+<rect class="pin" x="245" y="429" width="6" height="6"/>
+<rect class="pin" x="325" y="141" width="6" height="6"/>
+<rect class="pin" x="325" y="429" width="6" height="6"/>
+<rect class="pin" x="477" y="101" width="6" height="6"/>
+<rect class="pin" x="477" y="181" width="6" height="6"/>
+<rect class="pin" x="477" y="389" width="6" height="6"/>
+<rect class="pin" x="477" y="469" width="6" height="6"/>
+<rect class="pin" x="629" y="141" width="6" height="6"/>
+<rect class="pin" x="629" y="429" width="6" height="6"/>
+<rect class="pin" x="709" y="141" width="6" height="6"/>
+<rect class="pin" x="709" y="429" width="6" height="6"/>
+<rect class="pin" x="861" y="101" width="6" height="6"/>
+<rect class="pin" x="861" y="181" width="6" height="6"/>
+<rect class="pin" x="861" y="389" width="6" height="6"/>
+<rect class="pin" x="861" y="469" width="6" height="6"/>
+<rect class="pin" x="1013" y="141" width="6" height="6"/>
+<rect class="pin" x="1013" y="429" width="6" height="6"/>
+<rect class="pin" x="1093" y="141" width="6" height="6"/>
+<rect class="pin" x="1093" y="429" width="6" height="6"/>
+<rect class="pin" x="1245" y="101" width="6" height="6"/>
+<rect class="pin" x="1245" y="181" width="6" height="6"/>
+<rect class="pin" x="1245" y="389" width="6" height="6"/>
+<rect class="pin" x="1245" y="469" width="6" height="6"/>
+<rect class="pin" x="1397" y="141" width="6" height="6"/>
+<rect class="pin" x="1397" y="429" width="6" height="6"/>
+<rect class="pin" x="1477" y="141" width="6" height="6"/>
+<rect class="pin" x="1477" y="429" width="6" height="6"/>
+</g>
+<g class="texts">
+<text class="comment" x="96" y="247" font-size="20" text-anchor="middle">R0</text>
+<text class="comment" x="288" y="247" font-size="20" text-anchor="middle">R90</text>
+<text class="comment" x="480" y="247" font-size="20" text-anchor="middle">R180</text>
+<text class="comment" x="672" y="247" font-size="20" text-anchor="middle">R270</text>
+<text class="comment" x="864" y="247" font-size="20" text-anchor="middle">M0</text>
+<text class="comment" x="1056" y="247" font-size="20" text-anchor="middle">M90</text>
+<text class="comment" x="1248" y="247" font-size="20" text-anchor="middle">M180</text>
+<text class="comment" x="1440" y="247" font-size="20" text-anchor="middle">M270</text>
+<text class="comment" x="96" y="535" font-size="20" text-anchor="middle">R0</text>
+<text class="comment" x="288" y="535" font-size="20" text-anchor="middle">R90</text>
+<text class="comment" x="480" y="535" font-size="20" text-anchor="middle">R180</text>
+<text class="comment" x="672" y="535" font-size="20" text-anchor="middle">R270</text>
+<text class="comment" x="864" y="535" font-size="20" text-anchor="middle">M0</text>
+<text class="comment" x="1056" y="535" font-size="20" text-anchor="middle">M90</text>
+<text class="comment" x="1248" y="535" font-size="20" text-anchor="middle">M180</text>
+<text class="comment" x="1440" y="535" font-size="20" text-anchor="middle">M270</text>
+<text class="comment" x="16" y="39" font-size="20">Default windows</text>
+<text class="comment" x="16" y="327" font-size="20">Windows as LTspice writes them</text>
+</g>
+</svg>

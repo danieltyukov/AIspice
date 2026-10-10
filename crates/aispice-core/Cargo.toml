@@ -17,9 +17,20 @@ serde_json.workspace = true
 schemars.workspace = true
 thiserror.workspace = true
 similar.workspace = true
+resvg = { workspace = true, optional = true }
+
+[features]
+default = ["raster"]
+# PNG output for multimodal models, through resvg. Off for builds that only
+# need SVG.
+raster = ["dep:resvg"]
 
 [dev-dependencies]
 insta.workspace = true
+
+[[example]]
+name = "render_gallery"
+required-features = ["raster"]
 
 [lints]
 workspace = true

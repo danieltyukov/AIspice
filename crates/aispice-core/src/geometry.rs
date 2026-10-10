@@ -135,8 +135,15 @@ impl Orient {
 
     /// The orientation reached by turning this one a further quarter turn
     /// clockwise.
+    ///
+    /// A mirror reverses the sense of rotation, so for a mirrored orientation
+    /// a visual clockwise turn steps the stored turn count back by one.
     pub fn rotated_cw(self) -> Self {
-        Self::from_parts(self.quarter_turns() + 1, self.is_mirrored())
+        if self.is_mirrored() {
+            Self::from_parts(self.quarter_turns() + 3, true)
+        } else {
+            Self::from_parts(self.quarter_turns() + 1, false)
+        }
     }
 }
 
@@ -260,6 +267,16 @@ mod tests {
             assert_eq!(o.to_string().parse::<Orient>().unwrap(), o);
         }
         assert!("R45".parse::<Orient>().is_err());
+    }
+
+    #[test]
+    fn rotated_cw_turns_the_drawing_clockwise_for_every_orientation() {
+        let p = Point::new(16, 96);
+        for o in Orient::ALL {
+            let before = o.apply(p);
+            let after = o.rotated_cw().apply(p);
+            assert_eq!(after, Orient::R90.apply(before), "{o}");
+        }
     }
 
     #[test]

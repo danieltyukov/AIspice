@@ -9,6 +9,7 @@ pub mod encoding;
 pub mod geometry;
 pub mod lint;
 pub mod netlist;
+pub mod render;
 pub mod schematic;
 pub mod summary;
 pub mod symbol;
