@@ -43,6 +43,9 @@ pub struct SchematicDiff {
     pub changed: Vec<AttrChange>,
     pub moved: Vec<String>,
     pub rewired: Vec<Rewire>,
+    /// The net on each pin of every new part, as `PIN:net`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub added_pins: BTreeMap<String, Vec<String>>,
     pub directives_added: Vec<String>,
     pub directives_removed: Vec<String>,
     pub wires_added: usize,
@@ -82,7 +85,14 @@ impl SchematicDiff {
     pub fn to_text(&self) -> String {
         let mut out = String::new();
         for n in &self.added {
-            let _ = writeln!(out, "+ {n}");
+            match self.added_pins.get(n) {
+                Some(pins) => {
+                    let _ = writeln!(out, "+ {n} ({})", pins.join(" "));
+                }
+                None => {
+                    let _ = writeln!(out, "+ {n}");
+                }
+            }
         }
         for n in &self.removed {
             let _ = writeln!(out, "- {n}");
@@ -145,25 +155,69 @@ fn parts(sch: &Schematic) -> Parts {
         .collect()
 }
 
-/// Pin to (net name, set of other pins on that net).
-fn membership(
-    sch: &Schematic,
-    lib: &SymbolLibrary,
-) -> BTreeMap<String, (String, BTreeSet<String>)> {
+/// The nets of a schematic: each net's name, and the net of every pin. Pins
+/// are keyed upper-cased (`R1.A`), with their spelling kept for display.
+struct NetMap {
+    names: Vec<String>,
+    of_pin: BTreeMap<String, usize>,
+    spelled: BTreeMap<String, String>,
+}
+
+fn net_map(sch: &Schematic, lib: &SymbolLibrary) -> NetMap {
     let conn = connect(sch, lib);
-    let mut out = BTreeMap::new();
-    for net in &conn.nets {
-        let members: BTreeSet<String> = net
-            .pins
-            .iter()
-            .map(|p| format!("{}.{}", p.inst, p.pin).to_ascii_uppercase())
-            .collect();
+    let mut m = NetMap {
+        names: Vec::with_capacity(conn.nets.len()),
+        of_pin: BTreeMap::new(),
+        spelled: BTreeMap::new(),
+    };
+    for (i, net) in conn.nets.iter().enumerate() {
+        m.names.push(net.name.clone());
         for p in &net.pins {
-            let key = format!("{}.{}", p.inst, p.pin);
-            let mut others = members.clone();
-            others.remove(&key.to_ascii_uppercase());
-            out.insert(key, (net.name.clone(), others));
+            let shown = format!("{}.{}", p.inst, p.pin);
+            let key = shown.to_ascii_uppercase();
+            m.of_pin.insert(key.clone(), i);
+            m.spelled.insert(key, shown);
         }
+    }
+    m
+}
+
+/// Which net before the edit each net after it continues, judged by the pins
+/// both schematics have. A net keeps its identity when it keeps its label
+/// or, for numbered nets, most of its pins. Each net before is continued by
+/// at most one net after, so a split shows as the pins that left rather than
+/// as two copies of the old net.
+fn continued_from(a: &NetMap, b: &NetMap) -> BTreeMap<usize, usize> {
+    let mut overlap: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    for (pin, &nb) in &b.of_pin {
+        if let Some(&na) = a.of_pin.get(pin) {
+            *overlap.entry((nb, na)).or_default() += 1;
+        }
+    }
+    let mut candidates: Vec<(bool, usize, usize, usize)> = overlap
+        .into_iter()
+        .map(|((nb, na), count)| {
+            let same_name =
+                is_named(&b.names[nb]) && b.names[nb].eq_ignore_ascii_case(&a.names[na]);
+            (same_name, count, nb, na)
+        })
+        .collect();
+    // Name matches first, then the largest overlap; ties by net order, so the
+    // result does not depend on how the maps iterate.
+    candidates.sort_by(|x, y| {
+        y.0.cmp(&x.0)
+            .then(y.1.cmp(&x.1))
+            .then(x.2.cmp(&y.2))
+            .then(x.3.cmp(&y.3))
+    });
+    let mut out = BTreeMap::new();
+    let mut taken = BTreeSet::new();
+    for (_, _, nb, na) in candidates {
+        if out.contains_key(&nb) || taken.contains(&na) {
+            continue;
+        }
+        out.insert(nb, na);
+        taken.insert(na);
     }
     out
 }
@@ -201,16 +255,35 @@ pub fn diff(before: &Schematic, after: &Schematic, lib: &SymbolLibrary) -> Schem
             }
         }
     }
-    let (ma, mb) = (membership(before, lib), membership(after, lib));
-    for (pin, (net_b, others_b)) in &mb {
-        if let Some((net_a, others_a)) = ma.get(pin)
-            && (others_a != others_b || (net_a != net_b && (is_named(net_a) || is_named(net_b))))
-        {
+    // A pin is reported only when its own net changed: it left the net it
+    // was on, or that net was renamed. A pin whose net merely gained or lost
+    // other pins is unchanged; the pins that moved are reported instead.
+    let (ma, mb) = (net_map(before, lib), net_map(after, lib));
+    let origin = continued_from(&ma, &mb);
+    for (key, &nb) in &mb.of_pin {
+        let Some(&na) = ma.of_pin.get(key) else {
+            continue;
+        };
+        let (from, to) = (&ma.names[na], &mb.names[nb]);
+        let renamed = !from.eq_ignore_ascii_case(to) && (is_named(from) || is_named(to));
+        if origin.get(&nb) != Some(&na) || renamed {
             d.rewired.push(Rewire {
-                pin: pin.clone(),
-                from_net: net_a.clone(),
-                to_net: net_b.clone(),
+                pin: mb.spelled[key].clone(),
+                from_net: from.clone(),
+                to_net: to.clone(),
             });
+        }
+    }
+    for name in &d.added {
+        let prefix = format!("{}.", name.to_ascii_uppercase());
+        let pins: Vec<String> = mb
+            .of_pin
+            .iter()
+            .filter(|(k, _)| k.starts_with(&prefix))
+            .map(|(k, &n)| format!("{}:{}", &mb.spelled[k][prefix.len()..], mb.names[n]))
+            .collect();
+        if !pins.is_empty() {
+            d.added_pins.insert(name.clone(), pins);
         }
     }
     let dirs = |s: &Schematic| -> Vec<String> {
@@ -273,13 +346,76 @@ mod tests {
                 .iter()
                 .any(|c| c.name == "R1" && c.to.as_deref() == Some("2.2k"))
         );
-        assert!(d.rewired.iter().any(|r| r.pin == "C1.A"), "{:?}", d.rewired);
+        // C1.A stays on out; R2 joining out is reported once, with R2.
+        assert!(d.rewired.is_empty(), "{:?}", d.rewired);
+        assert_eq!(d.added_pins["R2"], vec!["A:out", "B:0"]);
+        assert!(d.to_text().contains("+ R2 (A:out B:0)"), "{}", d.to_text());
         assert_eq!(d.directives_added, vec![".tran 1m"]);
         assert_eq!(d.directives_removed, vec![".op"]);
         assert!(d.text.contains("+SYMBOL res"));
         let h = d.highlights();
         assert!(h.contains(&("R2".to_string(), HighlightKind::Added)));
         assert!(h.contains(&("R1".to_string(), HighlightKind::Changed)));
+    }
+
+    /// A new part on an existing net must not make every pin already on that
+    /// net show up as "now on in (was in)".
+    #[test]
+    fn unchanged_connections_are_not_reported() {
+        let lib = SymbolLibrary::builtin_only();
+        let src = RC.replace("FLAG 32 176 0\n", "FLAG 32 176 0\nFLAG 96 96 in\n");
+        let (before, _) = parse(&src);
+        let mut after = before.clone();
+        let ops: Vec<EditOp> = serde_json::from_str(r#"[{"op":"add_component","symbol":"res","name":"R2","value":"10k","near":"V1"},{"op":"connect_to_net","pin":"R2.A","net":"in"},{"op":"connect_to_net","pin":"R2.B","net":"0"}]"#).unwrap();
+        apply(&mut after, &lib, &ops).unwrap();
+        let d = diff(&before, &after, &lib);
+        assert!(d.rewired.is_empty(), "{:?}", d.rewired);
+        let text = d.to_text();
+        assert!(!text.contains("now on"), "{text}");
+        assert!(text.contains("+ R2 (A:in B:0)"), "{text}");
+    }
+
+    /// Joining two nets reports the pins that moved, not the ones that kept
+    /// their net; splitting one reports the pins that left.
+    #[test]
+    fn merges_and_splits_report_the_pins_that_moved() {
+        let lib = SymbolLibrary::builtin_only();
+        let src = RC.replace("FLAG 32 176 0\n", "FLAG 32 176 0\nFLAG 96 96 in\n");
+        let (before, _) = parse(&src);
+        // Merge: a label `in` on out's wire joins out into in.
+        let mut merged = before.clone();
+        apply(
+            &mut merged,
+            &lib,
+            &serde_json::from_str::<Vec<EditOp>>(
+                r#"[{"op":"remove_label","label":"out"},{"op":"add_label","at":[240,96],"label":"in"}]"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let d = diff(&before, &merged, &lib);
+        let mut moved: Vec<&str> = d.rewired.iter().map(|r| r.pin.as_str()).collect();
+        moved.sort_unstable();
+        assert_eq!(moved, vec!["C1.A", "R1.A"], "{:?}", d.rewired);
+        assert!(
+            d.rewired
+                .iter()
+                .all(|r| r.from_net == "out" && r.to_net == "in")
+        );
+        // Split: C1.A leaves out; R1.A stays.
+        let mut split = before.clone();
+        apply(
+            &mut split,
+            &lib,
+            &serde_json::from_str::<Vec<EditOp>>(
+                r#"[{"op":"remove_wire","from":[240,128],"to":[240,96]}]"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let d = diff(&before, &split, &lib);
+        let moved: Vec<&str> = d.rewired.iter().map(|r| r.pin.as_str()).collect();
+        assert_eq!(moved, vec!["C1.A"], "{:?}", d.rewired);
     }
 
     #[test]
