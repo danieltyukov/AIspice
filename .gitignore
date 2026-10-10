@@ -19,3 +19,6 @@ examples/**/*.log
 examples/**/*.op.raw
 examples/**/*.net
 !examples/**/golden/*.net
+
+# Agent worktrees and local assistant state
+.claude/

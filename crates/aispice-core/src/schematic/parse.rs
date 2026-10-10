@@ -21,7 +21,11 @@ pub fn parse_bytes(bytes: &[u8]) -> (Schematic, Vec<ParseWarning>) {
 /// Parse `.asc` text.
 pub fn parse(text: &str) -> (Schematic, Vec<ParseWarning>) {
     let mut sch = Schematic::new();
-    sch.format.line_ending = if text.contains("\r\n") { LineEnding::CrLf } else { LineEnding::Lf };
+    sch.format.line_ending = if text.contains("\r\n") {
+        LineEnding::CrLf
+    } else {
+        LineEnding::Lf
+    };
     let mut warnings = Vec::new();
     let mut seen_sheet = false;
     let mut current: Option<Symbol> = None;
@@ -36,22 +40,25 @@ pub fn parse(text: &str) -> (Schematic, Vec<ParseWarning>) {
         let (keyword, rest) = split_keyword(trimmed);
 
         // WINDOW and SYMATTR belong to the symbol above them.
-        if matches!(keyword, "WINDOW" | "SYMATTR") {
-            if let Some(sym) = current.as_mut() {
-                if keyword == "SYMATTR" {
-                    let (key, value) = split_keyword(rest);
-                    sym.attrs.push(Attr { key: key.to_string(), value: value.to_string() });
-                } else {
-                    match parse_window(rest) {
-                        Some(w) => sym.windows.push(w),
-                        None => {
-                            warnings.push(warn(line_no, "unreadable WINDOW line kept as is"));
-                            sym.extra.push(line.to_string());
-                        }
+        if matches!(keyword, "WINDOW" | "SYMATTR")
+            && let Some(sym) = current.as_mut()
+        {
+            if keyword == "SYMATTR" {
+                let (key, value) = split_keyword(rest);
+                sym.attrs.push(Attr {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                });
+            } else {
+                match parse_window(rest) {
+                    Some(w) => sym.windows.push(w),
+                    None => {
+                        warnings.push(warn(line_no, "unreadable WINDOW line kept as is"));
+                        sym.extra.push(line.to_string());
                     }
                 }
-                continue;
             }
+            continue;
         }
         if let Some(sym) = current.take() {
             sch.items.push(Item::Symbol(sym));
@@ -65,7 +72,11 @@ pub fn parse(text: &str) -> (Schematic, Vec<ParseWarning>) {
             "SHEET" if !seen_sheet => match ints::<3>(rest) {
                 Some([number, width, height]) => {
                     seen_sheet = true;
-                    sch.sheet = Sheet { number, width, height };
+                    sch.sheet = Sheet {
+                        number,
+                        width,
+                        height,
+                    };
                     continue;
                 }
                 None => None,
@@ -73,11 +84,23 @@ pub fn parse(text: &str) -> (Schematic, Vec<ParseWarning>) {
             "WIRE" => ints::<4>(rest).map(|[x1, y1, x2, y2]| {
                 Item::Wire(Wire::new(Point::new(x1, y1), Point::new(x2, y2)))
             }),
-            "FLAG" => point_and_rest(rest).map(|(at, label)| Item::Flag(Flag { at, label: label.to_string() })),
-            "IOPIN" => point_and_rest(rest)
-                .map(|(at, dir)| Item::IoPin(IoPin { at, direction: dir.to_string() })),
+            "FLAG" => point_and_rest(rest).map(|(at, label)| {
+                Item::Flag(Flag {
+                    at,
+                    label: label.to_string(),
+                })
+            }),
+            "IOPIN" => point_and_rest(rest).map(|(at, dir)| {
+                Item::IoPin(IoPin {
+                    at,
+                    direction: dir.to_string(),
+                })
+            }),
             "BUSTAP" => ints::<4>(rest).map(|[x1, y1, x2, y2]| {
-                Item::BusTap(BusTap { a: Point::new(x1, y1), b: Point::new(x2, y2) })
+                Item::BusTap(BusTap {
+                    a: Point::new(x1, y1),
+                    b: Point::new(x2, y2),
+                })
             }),
             "SYMBOL" => {
                 let mut parts = rest.split_whitespace();
@@ -109,13 +132,20 @@ pub fn parse(text: &str) -> (Schematic, Vec<ParseWarning>) {
                     tokens: rest.split_whitespace().map(str::to_string).collect(),
                 }))
             }
-            _ => Some(Item::Other { line: line.to_string() }),
+            _ => Some(Item::Other {
+                line: line.to_string(),
+            }),
         };
         match parsed {
             Some(item) => sch.items.push(item),
             None => {
-                warnings.push(warn(line_no, &format!("unreadable {keyword} line kept as is")));
-                sch.items.push(Item::Other { line: line.to_string() });
+                warnings.push(warn(
+                    line_no,
+                    &format!("unreadable {keyword} line kept as is"),
+                ));
+                sch.items.push(Item::Other {
+                    line: line.to_string(),
+                });
             }
         }
     }
@@ -126,7 +156,10 @@ pub fn parse(text: &str) -> (Schematic, Vec<ParseWarning>) {
 }
 
 fn warn(line: usize, message: &str) -> ParseWarning {
-    ParseWarning { line, message: message.to_string() }
+    ParseWarning {
+        line,
+        message: message.to_string(),
+    }
 }
 
 /// Split off the first whitespace-delimited word. The remainder keeps its
@@ -162,7 +195,12 @@ fn parse_window(s: &str) -> Option<Window> {
     let y = parts.next()?.parse().ok()?;
     let align = parts.next()?.to_string();
     let size = parts.next().map(|v| v.parse().ok()).unwrap_or(Some(2))?;
-    Some(Window { index, at: Point::new(x, y), align, size })
+    Some(Window {
+        index,
+        at: Point::new(x, y),
+        align,
+        size,
+    })
 }
 
 /// `TEXT x y Left 2 !.tran 1m`
@@ -181,7 +219,13 @@ fn parse_text(s: &str) -> Option<Text> {
         // Older files sometimes omit the marker on comments.
         (TextKind::Comment, body)
     };
-    Some(Text { at, align: align.to_string(), size, kind, content: content.to_string() })
+    Some(Text {
+        at,
+        align: align.to_string(),
+        size,
+        kind,
+        content: content.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -195,7 +239,14 @@ mod tests {
         let (sch, warnings) = parse(RC);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(sch.version, "4");
-        assert_eq!(sch.sheet, Sheet { number: 1, width: 880, height: 680 });
+        assert_eq!(
+            sch.sheet,
+            Sheet {
+                number: 1,
+                width: 880,
+                height: 680
+            }
+        );
         assert_eq!(sch.wires().count(), 2);
         assert_eq!(sch.flags().count(), 2);
         let r1 = sch.symbol("r1").unwrap();
@@ -244,7 +295,8 @@ mod tests {
 
     #[test]
     fn labels_keep_spaces_and_multiline_directives_split() {
-        let src = "Version 4\nSHEET 1 880 680\nFLAG 0 0 V out\nTEXT 0 0 Left 2 !.param a=1\\n.tran 1m\n";
+        let src =
+            "Version 4\nSHEET 1 880 680\nFLAG 0 0 V out\nTEXT 0 0 Left 2 !.param a=1\\n.tran 1m\n";
         let (sch, _) = parse(src);
         assert_eq!(sch.flags().next().unwrap().label, "V out");
         let lines: Vec<_> = sch.texts().next().unwrap().lines().collect();

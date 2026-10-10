@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest a tool, a simulator backend, a measurement or a workflow.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The circuit task, for example what you would ask the agent.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What aispice should do, and how you would check that it did it right.
+    validations:
+      required: true

@@ -13,7 +13,9 @@ use std::str::FromStr;
 /// The LTspice grid pitch. Pins sit on multiples of it.
 pub const GRID: i32 = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
@@ -117,7 +119,11 @@ impl Orient {
     /// Map a point given relative to a symbol's origin in its `R0` drawing to
     /// where it lands relative to the origin after this orientation.
     pub fn apply(self, p: Point) -> Point {
-        let (x, y) = if self.is_mirrored() { (-p.x, p.y) } else { (p.x, p.y) };
+        let (x, y) = if self.is_mirrored() {
+            (-p.x, p.y)
+        } else {
+            (p.x, p.y)
+        };
         match self.quarter_turns() {
             0 => Point::new(x, y),
             1 => Point::new(-y, x),

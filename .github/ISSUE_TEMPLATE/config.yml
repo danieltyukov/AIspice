@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and troubleshooting
+    url: https://github.com/danieltyukov/aispice/blob/master/docs/SETUP.md#troubleshooting
+    about: "`aispice doctor` and the troubleshooting notes cover simulators, LTspice under Wine and API keys."
+  - name: Security report
+    url: https://github.com/danieltyukov/aispice/security/advisories/new
+    about: Report a vulnerability privately instead of opening an issue.

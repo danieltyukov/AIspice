@@ -1,0 +1,16 @@
+Version 4
+SymbolType CELL
+WINDOW 0 56 32 Left 2
+WINDOW 3 56 72 Left 2
+SYMATTR Value PJF
+SYMATTR Prefix JP
+SYMATTR Description P-channel JFET
+PIN 48 0 NONE 8
+PINATTR PinName D
+PINATTR SpiceOrder 1
+PIN 0 64 NONE 8
+PINATTR PinName G
+PINATTR SpiceOrder 2
+PIN 48 96 NONE 8
+PINATTR PinName S
+PINATTR SpiceOrder 3

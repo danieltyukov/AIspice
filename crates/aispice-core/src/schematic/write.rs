@@ -6,7 +6,11 @@ use std::fmt::Write as _;
 pub fn write(sch: &Schematic) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "Version {}", sch.version);
-    let _ = writeln!(out, "SHEET {} {} {}", sch.sheet.number, sch.sheet.width, sch.sheet.height);
+    let _ = writeln!(
+        out,
+        "SHEET {} {} {}",
+        sch.sheet.number, sch.sheet.width, sch.sheet.height
+    );
     for item in &sch.items {
         write_item(&mut out, item);
     }
@@ -38,7 +42,11 @@ fn write_item(out: &mut String, item: &Item) {
         Item::Symbol(s) => {
             let _ = writeln!(out, "SYMBOL {} {} {} {}", s.name, s.at.x, s.at.y, s.orient);
             for w in &s.windows {
-                let _ = writeln!(out, "WINDOW {} {} {} {} {}", w.index, w.at.x, w.at.y, w.align, w.size);
+                let _ = writeln!(
+                    out,
+                    "WINDOW {} {} {} {} {}",
+                    w.index, w.at.x, w.at.y, w.align, w.size
+                );
             }
             for a in &s.attrs {
                 if a.value.is_empty() {
@@ -56,7 +64,11 @@ fn write_item(out: &mut String, item: &Item) {
                 TextKind::Directive => '!',
                 TextKind::Comment => ';',
             };
-            let _ = writeln!(out, "TEXT {} {} {} {} {}{}", t.at.x, t.at.y, t.align, t.size, marker, t.content);
+            let _ = writeln!(
+                out,
+                "TEXT {} {} {} {} {}{}",
+                t.at.x, t.at.y, t.align, t.size, marker, t.content
+            );
         }
         Item::Shape(s) => {
             let keyword = match s.kind {

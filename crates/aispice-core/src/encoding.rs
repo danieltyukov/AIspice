@@ -62,7 +62,9 @@ fn looks_like_utf16le(bytes: &[u8]) -> bool {
     if probe.len() < 4 {
         return false;
     }
-    probe.chunks_exact(2).all(|pair| pair[1] == 0 && pair[0] != 0)
+    probe
+        .chunks_exact(2)
+        .all(|pair| pair[1] == 0 && pair[0] != 0)
 }
 
 fn decode_utf16le(bytes: &[u8]) -> String {
@@ -88,7 +90,10 @@ mod tests {
     #[test]
     fn utf16_with_and_without_bom() {
         for bom in [true, false] {
-            let bytes = encode("Version 4\r\nSHEET 1 880 680\r\n", Encoding::Utf16Le { bom });
+            let bytes = encode(
+                "Version 4\r\nSHEET 1 880 680\r\n",
+                Encoding::Utf16Le { bom },
+            );
             let (text, enc) = decode(&bytes);
             assert_eq!(enc, Encoding::Utf16Le { bom });
             assert!(text.starts_with("Version 4"));

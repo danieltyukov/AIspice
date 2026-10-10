@@ -171,7 +171,15 @@ mod tests {
 
     #[test]
     fn rejects_non_numbers() {
-        for text in ["", "{R}", "SINE(0 1 1k)", "1N4148", "abc", "PULSE(0 5 0)", "1k+2"] {
+        for text in [
+            "",
+            "{R}",
+            "SINE(0 1 1k)",
+            "1N4148",
+            "abc",
+            "PULSE(0 5 0)",
+            "1k+2",
+        ] {
             assert_eq!(parse(text), None, "{text} should not parse");
         }
     }

@@ -9,7 +9,7 @@
 mod parse;
 mod write;
 
-pub use parse::{parse, parse_bytes, ParseWarning};
+pub use parse::{ParseWarning, parse, parse_bytes};
 pub use write::{write, write_bytes};
 
 use crate::encoding::Encoding;
@@ -50,7 +50,11 @@ pub struct Sheet {
 
 impl Default for Sheet {
     fn default() -> Self {
-        Self { number: 1, width: 880, height: 680 }
+        Self {
+            number: 1,
+            width: 880,
+            height: 680,
+        }
     }
 }
 
@@ -65,7 +69,9 @@ pub enum Item {
     Shape(Shape),
     BusTap(BusTap),
     /// A line aispice does not interpret, kept exactly as read.
-    Other { line: String },
+    Other {
+        line: String,
+    },
 }
 
 impl Item {
@@ -139,7 +145,14 @@ pub struct Symbol {
 
 impl Symbol {
     pub fn new(name: impl Into<String>, at: Point, orient: Orient) -> Self {
-        Self { name: name.into(), at, orient, windows: Vec::new(), attrs: Vec::new(), extra: Vec::new() }
+        Self {
+            name: name.into(),
+            at,
+            orient,
+            windows: Vec::new(),
+            attrs: Vec::new(),
+            extra: Vec::new(),
+        }
     }
 
     pub fn attr(&self, key: &str) -> Option<&str> {
@@ -157,9 +170,16 @@ impl Symbol {
             self.attrs.retain(|a| !a.key.eq_ignore_ascii_case(key));
             return;
         }
-        match self.attrs.iter_mut().find(|a| a.key.eq_ignore_ascii_case(key)) {
+        match self
+            .attrs
+            .iter_mut()
+            .find(|a| a.key.eq_ignore_ascii_case(key))
+        {
             Some(a) => a.value = value,
-            None => self.attrs.push(Attr { key: key.to_string(), value }),
+            None => self.attrs.push(Attr {
+                key: key.to_string(),
+                value,
+            }),
         }
     }
 
@@ -221,16 +241,31 @@ pub struct Text {
 
 impl Text {
     pub fn directive(at: Point, content: impl Into<String>) -> Self {
-        Self { at, align: "Left".into(), size: 2, kind: TextKind::Directive, content: content.into() }
+        Self {
+            at,
+            align: "Left".into(),
+            size: 2,
+            kind: TextKind::Directive,
+            content: content.into(),
+        }
     }
 
     pub fn comment(at: Point, content: impl Into<String>) -> Self {
-        Self { at, align: "Left".into(), size: 2, kind: TextKind::Comment, content: content.into() }
+        Self {
+            at,
+            align: "Left".into(),
+            size: 2,
+            kind: TextKind::Comment,
+            content: content.into(),
+        }
     }
 
     /// Directive lines, split on LTspice's stored `\n`.
     pub fn lines(&self) -> impl Iterator<Item = &str> {
-        self.content.split("\\n").map(str::trim).filter(|l| !l.is_empty())
+        self.content
+            .split("\\n")
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
     }
 }
 
@@ -265,7 +300,12 @@ impl Default for Schematic {
 
 impl Schematic {
     pub fn new() -> Self {
-        Self { version: "4".into(), sheet: Sheet::default(), items: Vec::new(), format: FileFormat::default() }
+        Self {
+            version: "4".into(),
+            sheet: Sheet::default(),
+            items: Vec::new(),
+            format: FileFormat::default(),
+        }
     }
 
     pub fn wires(&self) -> impl Iterator<Item = &Wire> {
@@ -316,19 +356,25 @@ impl Schematic {
 
     /// Find a component by instance name, case-insensitively as SPICE does.
     pub fn symbol(&self, inst_name: &str) -> Option<&Symbol> {
-        self.symbols()
-            .find(|s| s.inst_name().is_some_and(|n| n.eq_ignore_ascii_case(inst_name)))
+        self.symbols().find(|s| {
+            s.inst_name()
+                .is_some_and(|n| n.eq_ignore_ascii_case(inst_name))
+        })
     }
 
     pub fn symbol_mut(&mut self, inst_name: &str) -> Option<&mut Symbol> {
-        self.symbols_mut()
-            .find(|s| s.inst_name().is_some_and(|n| n.eq_ignore_ascii_case(inst_name)))
+        self.symbols_mut().find(|s| {
+            s.inst_name()
+                .is_some_and(|n| n.eq_ignore_ascii_case(inst_name))
+        })
     }
 
     /// Index of the component in `items`.
     pub fn symbol_index(&self, inst_name: &str) -> Option<usize> {
         self.items.iter().position(|i| match i {
-            Item::Symbol(s) => s.inst_name().is_some_and(|n| n.eq_ignore_ascii_case(inst_name)),
+            Item::Symbol(s) => s
+                .inst_name()
+                .is_some_and(|n| n.eq_ignore_ascii_case(inst_name)),
             _ => false,
         })
     }

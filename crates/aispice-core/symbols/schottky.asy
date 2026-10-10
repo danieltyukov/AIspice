@@ -1,0 +1,13 @@
+Version 4
+SymbolType CELL
+WINDOW 0 24 0 Left 2
+WINDOW 3 24 64 Left 2
+SYMATTR Value D
+SYMATTR Prefix D
+SYMATTR Description Schottky diode
+PIN 16 0 NONE 8
+PINATTR PinName +
+PINATTR SpiceOrder 1
+PIN 16 64 NONE 8
+PINATTR PinName -
+PINATTR SpiceOrder 2
