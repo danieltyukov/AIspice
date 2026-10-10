@@ -50,7 +50,7 @@ fn builds_rc_lowpass_from_scratch() {
         findings.iter().all(|f| f.severity == Severity::Info),
         "{findings:#?}"
     );
-    let (built, _) = crate::netlist::build::build(&sch, &lib(), "* rc");
+    let (built, _) = crate::netlist::build(&sch, &lib(), "* rc");
     let text = crate::netlist::write(&built.netlist);
     assert!(text.contains("C1 out 0 100n"), "{text}");
     assert!(

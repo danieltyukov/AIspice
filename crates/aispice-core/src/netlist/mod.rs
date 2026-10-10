@@ -1,9 +1,14 @@
-//! SPICE netlists: reading and writing them, and deriving one from a schematic.
+//! SPICE netlists: reading and writing them, deriving one from a schematic,
+//! comparing two, and deciding whether one is safe to run.
 
 pub mod build;
 pub mod compare;
 pub mod connect;
+pub mod policy;
 pub mod spice;
 
+pub use build::{Built, build, instance_name};
+pub use compare::{Mismatch, compare};
 pub use connect::{Connectivity, Net, PinRef, connect};
+pub use policy::{Policy, Violation, check as check_policy};
 pub use spice::{Element, Line, Netlist, Subckt, parse, write};
