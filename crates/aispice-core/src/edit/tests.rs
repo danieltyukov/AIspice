@@ -287,3 +287,27 @@ fn naming_a_labelled_net_renames_instead_of_stacking() {
         "{findings:#?}"
     );
 }
+
+#[test]
+fn explicit_positions_snap_and_avoid_overlaps() {
+    let mut sch = Schematic::new();
+    let report = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[
+            {"op": "add_component", "symbol": "voltage", "name": "V1", "value": "1", "at": [0, 0]},
+            {"op": "add_component", "symbol": "res", "name": "R1", "value": "1k", "at": [2, 0]},
+            {"op": "add_component", "symbol": "cap", "name": "C1", "value": "1n", "at": [0, 7]}
+        ]"#),
+    )
+    .unwrap();
+    assert_eq!(report.warnings.len(), 2, "{:#?}", report.warnings);
+    for s in sch.symbols() {
+        assert!(s.at.on_grid(), "{} at {}", s.inst_name().unwrap(), s.at);
+    }
+    let findings = lint(&sch, &lib()).findings;
+    assert!(
+        !findings.iter().any(|f| f.rule == "overlap"),
+        "{findings:#?}"
+    );
+}

@@ -11,6 +11,29 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+/// Ask-before-apply in a terminal: show the change and read y or n.
+struct TerminalApprover;
+
+#[async_trait::async_trait]
+impl aispice_tools::Approver for TerminalApprover {
+    async fn approve(&self, circuit: &str, summary: &str, diff: &str) -> bool {
+        let (circuit, summary, diff) = (circuit.to_string(), summary.to_string(), diff.to_string());
+        tokio::task::spawn_blocking(move || {
+            eprintln!("\n--- proposed change to {circuit}: {summary}");
+            for line in diff.lines().take(60) {
+                eprintln!("    {line}");
+            }
+            eprint!("Apply? [y/N] ");
+            let _ = std::io::stderr().flush();
+            let mut answer = String::new();
+            std::io::stdin().lock().read_line(&mut answer).is_ok()
+                && matches!(answer.trim(), "y" | "Y" | "yes")
+        })
+        .await
+        .unwrap_or(false)
+    }
+}
+
 pub struct ChatArgs {
     pub prompt: Option<String>,
     pub project: Option<PathBuf>,
@@ -28,6 +51,12 @@ pub fn chat(args: ChatArgs) -> Result<ExitCode> {
         None => std::env::current_dir()?,
     };
     let ws = open_workspace(&root, &cfg, &args.symbols).context("opening the project")?;
+    if cfg.edit_mode == aispice_agent::config::EditMode::Ask {
+        ws.set_hooks(aispice_tools::Hooks {
+            approver: Some(Arc::new(TerminalApprover)),
+            after_save: None,
+        });
+    }
     let provider_id = args.provider.unwrap_or_else(|| cfg.provider.clone());
     let provider = build_provider(&provider_id, &cfg, &keys).map_err(|e| anyhow!("{e}"))?;
     let model = args

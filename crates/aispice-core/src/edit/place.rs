@@ -129,3 +129,62 @@ pub(crate) fn text_spot(sch: &Schematic, lib: &SymbolLibrary) -> Point {
     };
     Point::new(snap(b.min.x), snap(y))
 }
+
+/// Where a part asked for at an explicit position actually goes: snapped to
+/// the grid, and moved to the nearest spot clear of other parts if it would
+/// land on one. Wires and labels are not avoided here, since a part may be
+/// placed on a wire on purpose. Returns a note when the position changed.
+pub(crate) fn requested_spot(
+    sch: &Schematic,
+    lib: &SymbolLibrary,
+    def: &SymbolDef,
+    orient: Orient,
+    at: Point,
+) -> (Point, Option<String>) {
+    let snapped = at.snapped();
+    let (parts, _, _) = occupied(sch, lib);
+    let probe = def
+        .placed_bounds(Point::new(0, 0), orient)
+        .unwrap_or(Rect::from_points(Point::new(0, 0), Point::new(0, 0)));
+    let clear = |origin: Point| {
+        let r = Rect {
+            min: origin + probe.min,
+            max: origin + probe.max,
+        }
+        .inflate(GRID / 2);
+        !parts.iter().any(|p| p.intersects(&r))
+    };
+    if clear(snapped) {
+        let note = (snapped != at).then(|| format!("snapped {at} to the grid at {snapped}"));
+        return (snapped, note);
+    }
+    // Search outward ring by ring, nearest first.
+    for ring in 1..64 {
+        let d = ring * GRID;
+        let mut ring_points = Vec::new();
+        for k in -ring..=ring {
+            let o = k * GRID;
+            ring_points.extend([
+                Point::new(snapped.x + o, snapped.y - d),
+                Point::new(snapped.x + o, snapped.y + d),
+                Point::new(snapped.x - d, snapped.y + o),
+                Point::new(snapped.x + d, snapped.y + o),
+            ]);
+        }
+        ring_points.sort_by_key(|p| (p.x - snapped.x).pow(2) + (p.y - snapped.y).pow(2));
+        if let Some(p) = ring_points.into_iter().find(|p| clear(*p)) {
+            return (
+                p,
+                Some(format!(
+                    "moved from {at} to {p} so it does not overlap another part"
+                )),
+            );
+        }
+    }
+    (
+        snapped,
+        Some(format!(
+            "{snapped} overlaps another part; no free spot was found nearby"
+        )),
+    )
+}

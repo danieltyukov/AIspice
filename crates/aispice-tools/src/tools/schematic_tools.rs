@@ -23,6 +23,13 @@ pub(crate) fn spec<T: JsonSchema>(name: &str, description: &str) -> ToolSpec {
     }
 }
 
+/// The edits field as an array of the flat edit schema (see
+/// `aispice_core::edit::flat_edit_schema`).
+fn edit_list_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let v = serde_json::json!({"type": "array", "items": aispice_core::edit::flat_edit_schema()});
+    schemars::Schema::try_from(v).expect("valid schema")
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoInput {}
 
@@ -104,6 +111,7 @@ pub struct EditInput {
     /// Path of the schematic relative to the project folder.
     pub circuit: String,
     /// Edits, applied in order and atomically: if one fails, none are kept.
+    #[schemars(schema_with = "edit_list_schema")]
     pub edits: Vec<EditOp>,
     /// One short sentence saying why, shown in the history.
     #[serde(default)]
@@ -236,6 +244,7 @@ pub struct CreateInput {
     /// Optional edits to build the circuit right away (same operations as
     /// edit_schematic).
     #[serde(default)]
+    #[schemars(schema_with = "edit_list_schema")]
     pub edits: Vec<EditOp>,
 }
 
@@ -406,9 +415,10 @@ impl Tool for History {
             HistoryAction::Restore => Some("Restore an earlier version"),
         };
         if let Some(what) = action
-            && !ws.approve(&input.circuit, what, "").await {
-                return ToolOutput::text("The user declined; nothing was changed.");
-            }
+            && !ws.approve(&input.circuit, what, "").await
+        {
+            return ToolOutput::text("The user declined; nothing was changed.");
+        }
         blocking(move || {
             let p = ws.project().map_err(|e| e.to_string())?;
             let moved = match input.action {

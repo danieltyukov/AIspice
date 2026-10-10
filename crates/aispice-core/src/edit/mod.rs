@@ -408,7 +408,13 @@ fn apply_one(
             };
             let orient = orient.unwrap_or_default();
             let at = match at {
-                Some(xy) => pt(*xy),
+                Some(xy) => {
+                    let (p, note) = place::requested_spot(sch, lib, &def, orient, pt(*xy));
+                    if let Some(n) = note {
+                        report.warnings.push(format!("{name}: {n}"));
+                    }
+                    p
+                }
                 None => place::free_spot(sch, lib, &def, orient, near.as_deref())?,
             };
             let mut sym = crate::schematic::Symbol::new(symbol.clone(), at, orient);
@@ -858,3 +864,73 @@ fn prune_dangling(sch: &mut Schematic, lib: &SymbolLibrary) -> usize {
 
 #[cfg(test)]
 mod tests;
+
+/// A flat JSON Schema for one edit, for language models.
+///
+/// The derived schema is a union of one object per operation, which is exact
+/// but which several models (Gemini among them) fill in badly: they drop the
+/// `op` discriminator. This schema is a single object with `op` as an enum and
+/// every field described with the operations that use it. Input is still
+/// parsed into [`EditOp`], so it is exactly as strict as before.
+pub fn flat_edit_schema() -> serde_json::Value {
+    let xy = serde_json::json!({"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2});
+    let pin_or_xy = serde_json::json!({"anyOf": [{"type": "string"}, xy.clone()]});
+    let orients = ["R0", "R90", "R180", "R270", "M0", "M90", "M180", "M270"];
+    let field = |schema: serde_json::Value, desc: &str| {
+        let mut s = schema;
+        s["description"] = serde_json::Value::String(desc.to_string());
+        s
+    };
+    serde_json::json!({
+        "type": "object",
+        "description": "One edit. Required fields per op: add_component(symbol; optional name, value, orient, near, at, attrs) | remove(name) | replace_symbol(name, symbol) | move(name, to=[x,y]) | rotate(name; optional orient) | set_value(name, value) | set_attr(name, key, value) | rename(name, new_name) | connect(from=PIN, to=PIN) | connect_to_net(pin, net) | disconnect(pin) | add_wire(from=[x,y], to=[x,y]) | remove_wire(from=[x,y], to=[x,y]) | add_label(at, label) | remove_label(label; optional at) | add_directive(text; optional at) | remove_directive(matching) | replace_directive(matching, text) | add_comment(text; optional at). PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-.",
+        "properties": {
+            "op": {"type": "string", "enum": ["add_component", "remove", "replace_symbol", "move", "rotate", "set_value", "set_attr", "rename", "connect", "connect_to_net", "disconnect", "add_wire", "remove_wire", "add_label", "remove_label", "add_directive", "remove_directive", "replace_directive", "add_comment"], "description": "The operation."},
+            "symbol": field(serde_json::json!({"type": "string"}), "add_component, replace_symbol: symbol name such as res, cap, ind, voltage, current, diode, npn, pnp, nmos, pmos, OpAmps\\opamp, OpAmps\\opamp2, bv, e, g, sw, or a library part."),
+            "name": field(serde_json::json!({"type": "string"}), "The component's instance name (R1). For add_component, optional: defaults to the next free name."),
+            "value": field(serde_json::json!({"type": "string"}), "add_component, set_value, set_attr: the value, e.g. 4.7k, 100n, SINE(0 1 1k)."),
+            "orient": field(serde_json::json!({"type": "string", "enum": orients}), "add_component, rotate: R0 (default, vertical two-terminal parts), R90 (horizontal), R180, R270, M0, M90, M180, M270."),
+            "near": field(serde_json::json!({"type": "string"}), "add_component: place next to this component."),
+            "at": field(xy.clone(), "add_component, add_label, remove_label, add_directive, add_comment: a sheet position [x, y]. Leave out for automatic placement."),
+            "attrs": field(serde_json::json!({"type": "object", "additionalProperties": {"type": "string"}}), "add_component: extra attributes such as {\"SpiceLine\": \"AC 1\"}."),
+            "key": field(serde_json::json!({"type": "string"}), "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix)."),
+            "new_name": field(serde_json::json!({"type": "string"}), "rename: the new instance name."),
+            "from": field(pin_or_xy.clone(), "connect: a pin such as R1.B. add_wire, remove_wire: a point [x, y]."),
+            "to": field(pin_or_xy, "connect: a pin such as C1.A. move: the new position [x, y]. add_wire, remove_wire: a point [x, y]."),
+            "pin": field(serde_json::json!({"type": "string"}), "connect_to_net, disconnect: a pin such as V1.- or C1.B."),
+            "net": field(serde_json::json!({"type": "string"}), "connect_to_net: the net name; 0 or gnd for ground."),
+            "label": field(serde_json::json!({"type": "string"}), "add_label, remove_label: the net label text."),
+            "text": field(serde_json::json!({"type": "string"}), "add_directive, replace_directive, add_comment: the text, e.g. .tran 10m or .ac dec 20 10 100k."),
+            "matching": field(serde_json::json!({"type": "string"}), "remove_directive, replace_directive: text that identifies the directive, e.g. .tran.")
+        },
+        "required": ["op"]
+    })
+}
+
+#[cfg(test)]
+mod flat_schema_tests {
+    use super::*;
+
+    /// Every op named in the flat schema parses as an EditOp with its fields.
+    #[test]
+    fn flat_schema_ops_match_the_enum() {
+        let s = flat_edit_schema();
+        let ops: Vec<String> = s["properties"]["op"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let samples = serde_json::json!([
+            {"op": "add_component", "symbol": "res"}, {"op": "remove", "name": "R1"}, {"op": "replace_symbol", "name": "R1", "symbol": "cap"},
+            {"op": "move", "name": "R1", "to": [0, 0]}, {"op": "rotate", "name": "R1"}, {"op": "set_value", "name": "R1", "value": "1k"},
+            {"op": "set_attr", "name": "R1", "key": "SpiceLine", "value": "x"}, {"op": "rename", "name": "R1", "new_name": "R2"},
+            {"op": "connect", "from": "R1.A", "to": "R2.B"}, {"op": "connect_to_net", "pin": "R1.A", "net": "0"}, {"op": "disconnect", "pin": "R1.A"},
+            {"op": "add_wire", "from": [0, 0], "to": [16, 0]}, {"op": "remove_wire", "from": [0, 0], "to": [16, 0]}, {"op": "add_label", "at": [0, 0], "label": "x"},
+            {"op": "remove_label", "label": "x"}, {"op": "add_directive", "text": ".op"}, {"op": "remove_directive", "matching": ".op"},
+            {"op": "replace_directive", "matching": ".op", "text": ".tran 1m"}, {"op": "add_comment", "text": "hi"}
+        ]);
+        let parsed: Vec<EditOp> = serde_json::from_value(samples).expect("every sample parses");
+        assert_eq!(parsed.len(), ops.len());
+    }
+}

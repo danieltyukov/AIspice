@@ -37,6 +37,7 @@ dependencies = [
  "aispice-tools",
  "anyhow",
  "assert_cmd",
+ "async-trait",
  "clap",
  "predicates",
  "rmcp",

@@ -63,7 +63,15 @@ pub struct OpenAiProvider {
     reasoning: ReasoningStyle,
     /// Gemini rejects some JSON Schema keywords the others accept.
     gemini_schemas: bool,
+    /// Provider-specific data a server attached to a tool call
+    /// (`extra_content`), by call id. Gemini 3 puts each call's
+    /// `thought_signature` there and requires it back on the next request.
+    call_extras: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
 }
+
+/// Gemini's documented value for function calls whose signature is not
+/// available (history from another model or an earlier session).
+const GEMINI_SKIP_SIGNATURE: &str = "skip_thought_signature_validator";
 
 impl OpenAiProvider {
     fn base(id: &str, base_url: &str, api_key: Option<String>) -> Self {
@@ -78,6 +86,7 @@ impl OpenAiProvider {
             token_field: TokenField::MaxTokens,
             reasoning: ReasoningStyle::Effort,
             gemini_schemas: false,
+            call_extras: Default::default(),
         }
     }
 
@@ -168,6 +177,29 @@ impl OpenAiProvider {
     }
 
     /// The JSON body sent to `/chat/completions`.
+    /// Put back the `extra_content` each tool call came with. For Gemini, a
+    /// call without a stored signature gets the documented skip value so
+    /// older history does not make the request fail.
+    fn attach_call_extras(&self, messages: &mut Value) {
+        let extras = self.call_extras.lock().expect("call extras lock");
+        for m in messages.as_array_mut().into_iter().flatten() {
+            for call in m
+                .get_mut("tool_calls")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                let id = call["id"].as_str().unwrap_or_default().to_string();
+                if let Some(extra) = extras.get(&id) {
+                    call["extra_content"] = extra.clone();
+                } else if self.gemini_schemas {
+                    call["extra_content"] =
+                        json!({"google": {"thought_signature": GEMINI_SKIP_SIGNATURE}});
+                }
+            }
+        }
+    }
+
     pub fn request_body(&self, req: &ChatRequest) -> Value {
         let mut body = json!({
             "model": req.model,
@@ -175,6 +207,7 @@ impl OpenAiProvider {
             "stream_options": {"include_usage": true},
             "messages": wire_messages(&req.system, &req.messages),
         });
+        self.attach_call_extras(&mut body["messages"]);
         let token_field = match self.token_field {
             TokenField::MaxTokens => "max_tokens",
             TokenField::MaxCompletionTokens => "max_completion_tokens",
@@ -266,6 +299,17 @@ impl OpenAiProvider {
             })
             .await?;
         }
+        let mut extras = self.call_extras.lock().expect("call extras lock");
+        for c in &state.calls {
+            if let Some(extra) = &c.extra {
+                // Bounded: a long session keeps at most the latest few thousand.
+                if extras.len() > 4096 {
+                    extras.clear();
+                }
+                extras.insert(c.id.clone(), extra.clone());
+            }
+        }
+        drop(extras);
         state.finish()
     }
 
@@ -535,6 +579,8 @@ struct Call {
     name: String,
     arguments: String,
     started: bool,
+    /// The call's `extra_content`, kept to send back (Gemini signatures).
+    extra: Option<Value>,
 }
 
 struct StreamState {
@@ -652,6 +698,7 @@ impl StreamState {
                     name: String::new(),
                     arguments: String::new(),
                     started: false,
+                    extra: None,
                 });
                 self.calls.len() - 1
             }
@@ -667,6 +714,9 @@ impl StreamState {
             && let Some(name) = delta["function"]["name"].as_str()
         {
             call.name = name.to_string();
+        }
+        if !delta["extra_content"].is_null() {
+            call.extra = Some(delta["extra_content"].clone());
         }
         let fragment = match &delta["function"]["arguments"] {
             Value::String(s) => s.clone(),
@@ -1356,5 +1406,50 @@ data: [DONE]
         assert_eq!(models[0].display_name, "gemini-2.5-pro");
         assert_eq!(models[0].supports_tools, None);
         assert_eq!(models[1].id, "qwen3:8b");
+    }
+
+    #[tokio::test]
+    async fn gemini_thought_signatures_round_trip() {
+        let server = wiremock::MockServer::start().await;
+        let stream = "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"fc_1\",\"type\":\"function\",\"function\":{\"name\":\"lint\",\"arguments\":\"{}\"},\"extra_content\":{\"google\":{\"thought_signature\":\"SIG123\"}}}]}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(stream),
+            )
+            .mount(&server)
+            .await;
+        let p = OpenAiProvider::google("k").with_base_url(server.uri());
+        let req_with = |messages: Vec<Message>| ChatRequest {
+            model: "gemini-3".into(),
+            system: String::new(),
+            messages,
+            tools: vec![],
+            max_tokens: 100,
+            temperature: None,
+            thinking: None,
+        };
+        let req = req_with(vec![Message::user(vec![ContentBlock::text("go")])]);
+        let cancel = CancellationToken::new();
+        let resp = p.stream(&req, &mut |_| {}, &cancel).await.unwrap();
+        // The next request carries the signature back on that call, and a
+        // call with no stored signature gets Gemini's skip value.
+        let mut history = vec![resp.message.clone()];
+        history.push(Message::assistant(vec![ContentBlock::ToolUse {
+            id: "old".into(),
+            name: "lint".into(),
+            input: json!({}),
+        }]));
+        let body = p.request_body(&req_with(history));
+        let msgs = body["messages"].as_array().unwrap();
+        assert_eq!(
+            msgs[0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
+            "SIG123"
+        );
+        assert_eq!(
+            msgs[1]["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
+            GEMINI_SKIP_SIGNATURE
+        );
     }
 }
