@@ -80,6 +80,20 @@ enum Command {
         #[arg(long, default_value_t = 2.0)]
         scale: f32,
     },
+    /// Draw a SPICE netlist as a readable LTspice schematic.
+    Draw {
+        /// The netlist (.cir, .net, .sp).
+        file: PathBuf,
+        /// The schematic to write (.asc).
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Replace the output file if it exists.
+        #[arg(long)]
+        force: bool,
+        /// How many candidate layouts to try: 1 is quick, 3 searches widely.
+        #[arg(long, default_value_t = 2)]
+        effort: u8,
+    },
     /// Serve aispice's tools over the Model Context Protocol on stdio.
     Mcp {
         /// Project folder the tools may read and write (default: the
@@ -167,6 +181,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
             output,
             scale,
         } => cmd_files::render(&ctx, &file, &output, scale),
+        Command::Draw {
+            file,
+            output,
+            force,
+            effort,
+        } => cmd_files::draw(&ctx, &file, &output, force, effort),
         Command::Mcp { project } => {
             let dir = match project {
                 Some(p) => p,

@@ -128,3 +128,38 @@ pub fn render(ctx: &Ctx, file: &Path, output: &Path, scale: f32) -> Result<ExitC
     }
     Ok(ExitCode::SUCCESS)
 }
+
+pub fn draw(ctx: &Ctx, file: &Path, output: &Path, force: bool, effort: u8) -> Result<ExitCode> {
+    let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let (text, _) = aispice_core::encoding::decode(&bytes);
+    let netlist = aispice_core::netlist::parse(&text);
+    let dir = file
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let lib = SymbolLibrary::for_project(Some(dir), &ctx.symbols, ltspice_lib().as_deref());
+    let opts = aispice_core::layout::LayoutOptions {
+        effort: effort.clamp(1, 3),
+        ..Default::default()
+    };
+    let result = aispice_core::layout::from_netlist(&netlist, &lib, &opts)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+    if output.exists() && !force {
+        anyhow::bail!("{} exists; pass --force to replace it", output.display());
+    }
+    let out = schematic::write_bytes(&result.schematic);
+    std::fs::write(output, out).with_context(|| format!("writing {}", output.display()))?;
+    for w in &result.warnings {
+        eprintln!("note: {}", crate::cmd_agent::terminal_safe(w));
+    }
+    if ctx.json {
+        println!("{}", serde_json::to_string_pretty(&result.quality)?);
+    } else {
+        println!(
+            "wrote {} (layout quality {:.0}/100)",
+            output.display(),
+            result.quality.score
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
