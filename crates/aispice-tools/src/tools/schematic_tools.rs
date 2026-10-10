@@ -96,7 +96,7 @@ impl Tool for ReadSchematic {
     fn spec(&self) -> ToolSpec {
         spec::<CircuitInput>(
             "read_schematic",
-            "Describe a schematic in circuit terms: every component with its value and the net on each pin, every net with its members, the directives, and electrical rule check results. Read a circuit before editing it. Pin names shown here (A, B, +, -, C, B, E, D, G, S, In+, ...) are the ones edit_schematic expects.",
+            "Describe a schematic in circuit terms: every component with its value, its attributes in brackets and the net on each pin, every net with its members, the directives, and electrical rule check results. Read a circuit before editing it. The value column is what set_value changes; for an op-amp or other subcircuit it is the subcircuit's name (opamp), and parameters such as [SpiceLine2: GBW=10Meg] are changed with set_attr on that attribute. The pin names listed for each part are the ones edit_schematic expects.",
         )
     }
 

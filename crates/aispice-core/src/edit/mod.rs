@@ -325,6 +325,123 @@ fn attribute(key: &str, value: &str) -> Result<(), EditError> {
     Ok(())
 }
 
+/// A part that calls a subcircuit (an op-amp) takes the subcircuit's name as
+/// its value; parameters such as `GBW=1Meg` belong in SpiceLine or
+/// SpiceLine2. A value with `=` in it would replace the name, and the netlist
+/// would call a subcircuit named after the parameter. `sym` is the part as
+/// it would be after the edit, `old` its value before; `adding` words the
+/// advice for add_component.
+fn check_subckt_value(
+    sym: &crate::schematic::Symbol,
+    def: &crate::symbol::SymbolDef,
+    name: &str,
+    old: Option<&str>,
+    adding: bool,
+) -> Result<(), EditError> {
+    use crate::netlist::build::{effective_attr, subckt_call};
+    let Some(call) = subckt_call(sym, def) else {
+        return Ok(());
+    };
+    let Some(value) = effective_attr(sym, def, "Value") else {
+        return Ok(());
+    };
+    // Only when the value is what names the subcircuit (no model name in
+    // SpiceModel before it, no Value2 standing in for it).
+    if call.from != "Value" || !value.contains('=') {
+        return Ok(());
+    }
+    let lines: Vec<(&str, &str)> = ["SpiceLine", "SpiceLine2"]
+        .into_iter()
+        .filter_map(|k| effective_attr(sym, def, k).map(|v| (k, v)))
+        .collect();
+    let current = if lines.is_empty() {
+        "none".to_string()
+    } else {
+        lines
+            .iter()
+            .map(|(k, v)| format!("{k} `{v}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    // Suggest the line that already carries the parameter, with its new
+    // value; otherwise an empty line, or SpiceLine with it added.
+    let given: Vec<&str> = value
+        .split_whitespace()
+        .filter(|w| w.contains('='))
+        .collect();
+    let param_key = |w: &str| w.split('=').next().unwrap_or("").to_ascii_lowercase();
+    let first = given.first().map(|w| param_key(w)).unwrap_or_default();
+    let carrying = lines
+        .iter()
+        .find(|(_, v)| v.split_whitespace().any(|w| param_key(w) == first));
+    let (key, suggestion) = match carrying {
+        Some((k, v)) => {
+            let mut words: Vec<String> = v.split_whitespace().map(str::to_string).collect();
+            for g in &given {
+                match words.iter_mut().find(|w| param_key(w) == param_key(g)) {
+                    Some(w) => *w = g.to_string(),
+                    None => words.push(g.to_string()),
+                }
+            }
+            (*k, words.join(" "))
+        }
+        None => match ["SpiceLine", "SpiceLine2"]
+            .into_iter()
+            .find(|k| !lines.iter().any(|(l, _)| l == k))
+        {
+            Some(k) => (k, given.join(" ")),
+            None => ("SpiceLine", format!("{} {}", lines[0].1, given.join(" "))),
+        },
+    };
+    let subckt = old
+        .filter(|o| !o.contains('='))
+        .or_else(|| def.attr("Value").filter(|v| !v.contains('=')))
+        .unwrap_or("its subcircuit");
+    let how = if adding {
+        format!(
+            "Give parameters in attrs instead, for example \"attrs\": {{\"{key}\": \"{suggestion}\"}}"
+        )
+    } else {
+        format!(
+            "Change parameters with set_attr instead, for example {{\"op\": \"set_attr\", \"name\": \"{name}\", \"key\": \"{key}\", \"value\": \"{suggestion}\"}}"
+        )
+    };
+    let first_word = value.split_whitespace().next().unwrap_or(value);
+    let why = if first_word.contains('=') {
+        format!("the netlist would look for a subcircuit called `{first_word}`")
+    } else {
+        "the netlist would repeat those parameters next to the SpiceLine ones".to_string()
+    };
+    Err(EditError::Refused(format!(
+        "{name} calls the subcircuit `{subckt}`, and its value is that name only, not parameters such as `{value}` ({why}). {how}. Current parameters: {current}"
+    )))
+}
+
+/// Refuse setting `key` to `value` on part `name` when it would put
+/// parameters where a subcircuit name belongs. Unknown parts and symbols are
+/// left for the operation itself to report.
+fn guard_value(
+    sch: &Schematic,
+    lib: &SymbolLibrary,
+    name: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), EditError> {
+    if !key.eq_ignore_ascii_case("Value") {
+        return Ok(());
+    }
+    let Some(sym) = sch.symbol(name) else {
+        return Ok(());
+    };
+    let Ok((def, _)) = lib.resolve(&sym.name) else {
+        return Ok(());
+    };
+    let old = crate::netlist::build::effective_attr(sym, &def, "Value").map(str::to_string);
+    let mut after = sym.clone();
+    after.set_attr("Value", value.to_string());
+    check_subckt_value(&after, &def, name, old.as_deref(), false)
+}
+
 /// Directive text must pass the same allowlist the simulator gate applies.
 fn directive_text(text: &str) -> Result<(), EditError> {
     let decoded = text.replace("\\n", "\n");
@@ -457,6 +574,7 @@ fn apply_one(
             for (k, v) in attrs {
                 sym.set_attr(k, v.clone());
             }
+            check_subckt_value(&sym, &def, &name, None, true)?;
             sch.insert(Item::Symbol(sym));
             let conn = connect(sch, lib);
             let joined: Vec<String> = conn
@@ -557,6 +675,7 @@ fn apply_one(
                 .push(format!("Set {name} orientation to {o}"));
         }
         EditOp::SetValue { name, value } => {
+            guard_value(sch, lib, name, "Value", value)?;
             let known = pins::known_names(sch);
             let sym = sch
                 .symbol_mut(name)
@@ -581,6 +700,7 @@ fn apply_one(
                     return Err(EditError::NameTaken(value.clone()));
                 }
             }
+            guard_value(sch, lib, name, key, value)?;
             let known = pins::known_names(sch);
             let sym = sch
                 .symbol_mut(name)

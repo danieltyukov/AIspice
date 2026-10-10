@@ -471,6 +471,52 @@ fn connect_to_net_refuses_a_pin_as_the_net_name() {
     assert_eq!(net(&sch, "Rg.B"), "v.ref");
 }
 
+/// Was a trap: set_value with `GBW=1Meg` on an op-amp replaced its
+/// subcircuit name, so the netlist called a subcircuit named `GBW=1Meg`.
+/// Parameters go in SpiceLine or SpiceLine2; the error says so and shows
+/// the current ones.
+#[test]
+fn subcircuit_value_refuses_parameters() {
+    let (mut sch, _) = parse(AMP);
+    let before = sch.clone();
+    for json in [
+        r#"[{"op": "set_value", "name": "U1", "value": "GBW=10Meg"}]"#,
+        r#"[{"op": "set_attr", "name": "U1", "key": "Value", "value": "opamp GBW=10Meg"}]"#,
+    ] {
+        let err = apply(&mut sch, &lib(), &ops(json)).unwrap_err().to_string();
+        assert!(err.contains("set_attr"), "{err}");
+        assert!(err.contains(r#""key": "SpiceLine2""#), "{err}");
+        assert!(err.contains(r#""value": "GBW=10Meg""#), "{err}");
+        assert!(
+            err.contains("SpiceLine `Aol=100K`") && err.contains("SpiceLine2 `GBW=1Meg`"),
+            "{err}"
+        );
+    }
+    assert_eq!(sch, before);
+    let err = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "add_component", "symbol": "OpAmps\\opamp", "name": "U2", "value": "GBW=1Meg"}]"#),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains(r#""SpiceLine2": "GBW=1Meg""#), "{err}");
+    // The right way works, and a plain subcircuit name is still a value.
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "set_attr", "name": "U1", "key": "SpiceLine2", "value": "GBW=10Meg"}, {"op": "set_value", "name": "U1", "value": "opamp"}]"#),
+    )
+    .unwrap();
+    // Values of other parts may contain `=`.
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "set_value", "name": "V1", "value": "PULSE(0 1 0 1n 1n 1m 2m) Rser=1"}]"#),
+    )
+    .unwrap();
+}
+
 /// A leftover label with no pins on it is still a net: a stub must not run
 /// into it and merge that name in.
 #[test]

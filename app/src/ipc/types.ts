@@ -31,7 +31,11 @@ export interface PinInfo {
 export interface ComponentInfo {
   name: string;
   symbol: string;
+  /** What set_value changes; for an op-amp or other subcircuit call, the subcircuit's name. */
   value: string | null;
+  /** SpiceLine and SpiceLine2 as they reach the netlist, such as `GBW=10Meg` or `AC 1`. */
+  params?: Record<string, string>;
+  /** Other attributes set on the instance (Value2, SpiceModel and the like). */
   attrs?: Record<string, string>;
   at: Point;
   orient: string;

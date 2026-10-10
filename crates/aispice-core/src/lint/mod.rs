@@ -107,6 +107,10 @@ pub const RULES: &[(&str, &str)] = &[
         "multiple-labels",
         "One net carries several different labels.",
     ),
+    (
+        "unknown-subckt",
+        "A part calls a subcircuit that no .subckt directive, readable library or aispice's own models define.",
+    ),
     ("off-grid", "A part or wire is not on the 16-unit grid."),
     ("overlap", "Two parts are drawn on top of each other."),
 ];
@@ -404,6 +408,8 @@ pub fn lint(sch: &Schematic, lib: &SymbolLibrary) -> LintReport {
         }
     }
 
+    subckt_calls(sch, lib, &conn, &mut out);
+
     let analyses: Vec<String> = sch
         .directives()
         .flat_map(|t| t.lines())
@@ -463,6 +469,200 @@ pub fn lint(sch: &Schematic, lib: &SymbolLibrary) -> LintReport {
     LintReport {
         findings: out,
         connectivity: conn,
+    }
+}
+
+/// Subcircuits aispice supplies from its own embedded model library, so a
+/// call to one needs no definition. Must list exactly the subcircuits in
+/// aispice-sim's `models/generic.lib`; a test there checks it.
+pub const BUILTIN_SUBCKTS: &[&str] = &["opamp"];
+
+/// Library files aispice resolves by itself, with the subcircuits each one
+/// provides.
+const BUILTIN_LIBRARIES: &[(&str, &[&str])] = &[("opamp.sub", &["opamp"])];
+
+/// Library files larger than this are not read for the check.
+const MAX_LIBRARY_BYTES: u64 = 4 * 1024 * 1024;
+
+/// The file named by `.lib file [section]`, `.include file` or `.inc file`.
+fn include_target(directive: &str) -> Option<String> {
+    let trimmed = directive.trim();
+    let kw = trimmed.split_whitespace().next()?.to_ascii_lowercase();
+    if !matches!(kw.as_str(), ".lib" | ".include" | ".inc") {
+        return None;
+    }
+    let rest = trimmed[kw.len()..].trim();
+    let file = match rest.strip_prefix('"') {
+        Some(q) => q.split('"').next().unwrap_or(""),
+        None => rest.split_whitespace().next().unwrap_or(""),
+    };
+    (!file.is_empty()).then(|| file.to_string())
+}
+
+/// Upper-cased names of every subcircuit defined in a netlist, nested ones
+/// included.
+fn subckt_names(n: &crate::netlist::Netlist) -> HashSet<String> {
+    fn walk(items: &[crate::netlist::Line], out: &mut HashSet<String>) {
+        for item in items {
+            if let crate::netlist::Line::Subckt(s) = item {
+                out.insert(s.name.to_ascii_uppercase());
+                walk(&s.body, out);
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    walk(&n.items, &mut out);
+    out
+}
+
+/// A library file in the project folder, read and parsed; `None` when it is
+/// not a plain file there that aispice can read.
+fn project_library(lib: &SymbolLibrary, file: &str) -> Option<crate::netlist::Netlist> {
+    let rel = std::path::Path::new(file);
+    if rel.is_absolute() {
+        return None;
+    }
+    for (dir, source) in lib.dirs() {
+        if source != crate::symbol::SymbolSource::Project {
+            continue;
+        }
+        let root = std::fs::canonicalize(&dir).ok()?;
+        let Ok(path) = std::fs::canonicalize(root.join(rel)) else {
+            continue;
+        };
+        if !path.starts_with(&root)
+            || !path.is_file()
+            || std::fs::metadata(&path).map_or(true, |m| m.len() > MAX_LIBRARY_BYTES)
+        {
+            return None;
+        }
+        let bytes = std::fs::read(&path).ok()?;
+        let (text, _) = crate::encoding::decode(&bytes);
+        return Some(crate::netlist::parse(&format!("* {file}\n{text}")));
+    }
+    None
+}
+
+/// Whether an LTspice library aispice uses has a file for this subcircuit,
+/// where the simulation layer would look it up by name.
+fn ltspice_provides(lib: &SymbolLibrary, name: &str) -> bool {
+    let wanted: Vec<String> = ["sub", "lib", "cir", "mod", "txt"]
+        .iter()
+        .map(|ext| format!("{name}.{ext}").to_ascii_lowercase())
+        .collect();
+    lib.dirs()
+        .into_iter()
+        .filter(|(_, s)| *s == crate::symbol::SymbolSource::Ltspice)
+        .filter_map(|(dir, _)| dir.parent().map(std::path::Path::to_path_buf))
+        .flat_map(|root| ["sub", "cmp", ""].map(|s| root.join(s)))
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flat_map(|entries| entries.flatten())
+        .any(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| wanted.contains(&n.to_ascii_lowercase()))
+        })
+}
+
+/// Parts that call a subcircuit nothing defines: the netlist would fail in
+/// the simulator with "unknown subckt". A library aispice cannot read (in
+/// LTspice's folders, or outside the project) may define anything, so with
+/// one of those included only calls that cannot be a name are reported.
+fn subckt_calls(sch: &Schematic, lib: &SymbolLibrary, conn: &Connectivity, out: &mut Vec<Finding>) {
+    use crate::netlist::build::{effective_attr, is_library_file, subckt_call};
+    let mut calls = Vec::new();
+    let mut includes: Vec<String> = Vec::new();
+    for p in &conn.placed {
+        let Some(def) = &p.def else { continue };
+        let Item::Symbol(sym) = &sch.items[p.item] else {
+            continue;
+        };
+        if crate::netlist::connect::is_jumper(&sym.name) {
+            continue;
+        }
+        let model = effective_attr(sym, def, "SpiceModel").filter(|m| is_library_file(m));
+        for file in [model, effective_attr(sym, def, "ModelFile")]
+            .into_iter()
+            .flatten()
+        {
+            includes.push(file.to_string());
+        }
+        if let Some(call) = subckt_call(sym, def) {
+            calls.push((
+                p.inst.clone(),
+                sym.at,
+                def.attr("Value").map(str::to_string),
+                call,
+            ));
+        }
+    }
+    if calls.is_empty() {
+        return;
+    }
+    let mut deck = String::from("* directives\n");
+    for t in sch.directives() {
+        for line in t.lines() {
+            deck.push_str(&line);
+            deck.push('\n');
+        }
+    }
+    let parsed = crate::netlist::parse(&deck);
+    let mut defined = subckt_names(&parsed);
+    includes.extend(parsed.directives().filter_map(include_target));
+    let mut unreadable = false;
+    for file in &includes {
+        let base = file.rsplit(['/', '\\']).next().unwrap_or(file);
+        if let Some((_, names)) = BUILTIN_LIBRARIES
+            .iter()
+            .find(|(l, _)| l.eq_ignore_ascii_case(base))
+        {
+            defined.extend(names.iter().map(|n| n.to_ascii_uppercase()));
+            continue;
+        }
+        match project_library(lib, file) {
+            Some(n) => defined.extend(subckt_names(&n)),
+            None => unreadable = true,
+        }
+    }
+    let builtin = |n: &str| BUILTIN_SUBCKTS.iter().any(|b| b.eq_ignore_ascii_case(n));
+    for (inst, at, default, call) in calls {
+        let own = default
+            .filter(|d| builtin(d))
+            .map(|d| format!("`{d}`"))
+            .unwrap_or_else(|| "the subcircuit's name".into());
+        let message = match &call.name {
+            None => format!("{inst} names no subcircuit: its Value is empty. Set Value to {own}."),
+            Some(n) if n.contains('=') => format!(
+                "{inst}'s {} `{n}` is a parameter, not a subcircuit name, so the netlist calls a subcircuit named `{n}` and the simulation fails with \"unknown subckt\". Set Value to {own} and put parameters in SpiceLine or SpiceLine2 with set_attr.",
+                call.from
+            ),
+            Some(n) => {
+                if unreadable
+                    || defined.contains(&n.to_ascii_uppercase())
+                    || builtin(n)
+                    || ltspice_provides(lib, n)
+                {
+                    continue;
+                }
+                format!(
+                    "{inst} calls subcircuit `{n}`, which no .subckt directive, readable library or aispice's own models define, so the simulation fails with \"unknown subckt\". {}",
+                    if own.starts_with('`') {
+                        format!(
+                            "This symbol's own subcircuit is {own}; set Value back to it, or add a .lib or .include line for `{n}`'s model."
+                        )
+                    } else {
+                        format!(
+                            "Add a .lib or .include line for `{n}`'s model, or define it with .subckt."
+                        )
+                    }
+                )
+            }
+        };
+        out.push(
+            Finding::new(Severity::Warning, "unknown-subckt", message)
+                .parts(&[&inst])
+                .at(Some(at)),
+        );
     }
 }
 
@@ -539,6 +739,90 @@ mod tests {
         let src = "Version 4\nSHEET 1 880 680\nFLAG 0 16 a\nFLAG 0 96 0\nFLAG 128 16 a\nFLAG 128 96 0\nSYMBOL voltage 0 0 R0\nSYMATTR InstName V1\nSYMATTR Value 1\nSYMBOL voltage 128 0 R0\nSYMATTR InstName V2\nSYMATTR Value 2\nTEXT 0 300 Left 2 !.op\n";
         let r = rules(src);
         assert!(r.contains(&"parallel-sources".to_string()), "{r:?}");
+    }
+
+    const OPAMP: &str = "Version 4\nSHEET 1 880 680\nFLAG 192 96 fb\nFLAG 192 128 0\nFLAG 256 112 fb\nSYMBOL OpAmps/opamp 224 48 R0\nSYMATTR InstName U1\nTEXT 0 300 Left 2 !.op\n";
+
+    fn unknown_subckt(src: &str, lib: &SymbolLibrary) -> Vec<String> {
+        let (sch, _) = parse(src);
+        lint(&sch, lib)
+            .findings
+            .into_iter()
+            .filter(|f| f.rule == "unknown-subckt")
+            .map(|f| {
+                assert_eq!(f.severity, Severity::Warning);
+                f.message
+            })
+            .collect()
+    }
+
+    /// Was a trap: an op-amp whose Value had been replaced by `GBW=1Meg`
+    /// linted clean and then failed in ngspice with "unknown subckt".
+    #[test]
+    fn subcircuit_calls_need_a_definition() {
+        let lib = SymbolLibrary::builtin_only();
+        // The built-in op-amp's subcircuit is aispice's own.
+        assert!(unknown_subckt(OPAMP, &lib).is_empty());
+        let with_value = |v: &str| {
+            OPAMP.replace(
+                "SYMATTR InstName U1\n",
+                &format!("SYMATTR InstName U1\nSYMATTR Value {v}\n"),
+            )
+        };
+        let found = unknown_subckt(&with_value("GBW=1Meg"), &lib);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("`GBW=1Meg`") && found[0].contains("SpiceLine"),
+            "{found:?}"
+        );
+        let found = unknown_subckt(&with_value("LM741"), &lib);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("`LM741`") && found[0].contains("`opamp`"),
+            "{found:?}"
+        );
+        // Defined in the schematic: fine.
+        let defined = format!(
+            "{}TEXT 0 340 Left 2 !.subckt LM741 a b c\\nE1 c 0 b a 1e5\\n.ends LM741\n",
+            with_value("LM741")
+        );
+        assert!(unknown_subckt(&defined, &lib).is_empty());
+        // A library aispice cannot read may define it: not flagged.
+        let included = format!(
+            "{}TEXT 0 340 Left 2 !.lib vendor.lib\n",
+            with_value("LM741")
+        );
+        assert!(unknown_subckt(&included, &lib).is_empty());
+        // opamp.sub is aispice's own.
+        let builtin = format!("{}TEXT 0 340 Left 2 !.lib opamp.sub\n", with_value("opamp"));
+        assert!(unknown_subckt(&builtin, &lib).is_empty());
+    }
+
+    /// A library in the project folder is read, so a name it does not define
+    /// is flagged and one it defines is not.
+    #[test]
+    fn project_libraries_are_read() {
+        let dir = std::env::temp_dir().join(format!("aispice-lint-sub-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("amps.lib"),
+            "* amps\n.subckt myamp a b c\nE1 c 0 b a 1e5\n.ends myamp\n",
+        )
+        .unwrap();
+        let lib =
+            SymbolLibrary::builtin_only().with_dir(&dir, crate::symbol::SymbolSource::Project);
+        let src = |v: &str| {
+            format!(
+                "{}TEXT 0 340 Left 2 !.lib amps.lib\n",
+                OPAMP.replace(
+                    "SYMATTR InstName U1\n",
+                    &format!("SYMATTR InstName U1\nSYMATTR Value {v}\n")
+                )
+            )
+        };
+        assert!(unknown_subckt(&src("myamp"), &lib).is_empty());
+        assert_eq!(unknown_subckt(&src("youramp"), &lib).len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
