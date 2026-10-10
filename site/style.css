@@ -354,8 +354,8 @@ code {
 .pill-tag {
   padding: 2px 9px;
   border-radius: 999px;
-  background: var(--accent-tint);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -633,10 +633,8 @@ code {
 .band-art img {
   width: 100%;
   height: clamp(300px, 44vw, 640px);
+  /* The renders are graded to the page colour, so the band needs no fade. */
   object-fit: cover;
-  /* Fade into the page at the top so the band has no hard edge. */
-  mask-image: linear-gradient(to bottom, transparent, #000 18%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18%);
 }
 
 /* Numbers
