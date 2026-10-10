@@ -85,7 +85,7 @@ impl Ctx {
         for w in &self.wires {
             let own = own_path
                 .iter()
-                .any(|p| crate::geometry::on_segment(*p, w.a, w.b));
+                .any(|p| super::geom::on_segment(*p, w.a, w.b));
             if !own && segment_hits(w.a, w.b, &r) {
                 cost += 6.0;
             }
@@ -419,6 +419,35 @@ fn fresh_name(c: &Circuit, taken: &[String]) -> String {
         .expect("unbounded")
 }
 
+/// The fallback when no routing grid can be built: a flag on every pin,
+/// ground, rail or net name, and a fresh name for automatically numbered
+/// nets with more than one pin.
+fn labels_only(c: &Circuit, pins: &[PinPos]) -> Wiring {
+    let mut out = Wiring::default();
+    let mut taken: Vec<String> = Vec::new();
+    for (n, info) in c.nets.iter().enumerate() {
+        let on: Vec<&PinPos> = pins.iter().filter(|p| p.net == n).collect();
+        let label = match info.kind {
+            NetKind::Ground => "0".to_string(),
+            _ if info.named || !auto_named(&info.name) => info.name.clone(),
+            _ if on.len() > 1 => {
+                let name = fresh_name(c, &taken);
+                taken.push(name.clone());
+                out.renames.push((n, name.clone()));
+                name
+            }
+            _ => continue,
+        };
+        for p in on {
+            out.flags.push(Flag {
+                at: p.p,
+                label: label.clone(),
+            });
+        }
+    }
+    out
+}
+
 /// Wire up placed devices.
 pub(crate) fn wire(c: &Circuit, placed: &[Placement]) -> Wiring {
     let mut pins: Vec<PinPos> = Vec::new();
@@ -455,7 +484,11 @@ pub(crate) fn wire(c: &Circuit, placed: &[Placement]) -> Wiring {
         area.include(p.p);
     }
     let area = area.inflate(14 * GRID);
-    let mut grid = Grid::new(area);
+    let Some(mut grid) = Grid::new(area) else {
+        // Too large to route (a value of thousands of characters makes its
+        // text that wide): every pin gets a label, which still connects.
+        return labels_only(c, &pins);
+    };
     for b in &bodies {
         grid.add_keepout(b.inflate(CLEARANCE));
         grid.add_cost(b.inflate(CLEARANCE + 16), 3);

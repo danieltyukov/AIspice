@@ -15,8 +15,8 @@
 
 use super::pins::{PinLoc, bodies};
 use crate::geometry::{GRID, Point, Rect, SegmentIndex};
-use crate::layout::maze::{CLEARANCE, Grid, Start};
-use crate::layout::{Dir, core_body, flag_box, pin_facing, place_rect, symbol_texts};
+use crate::layout::maze::{CLEARANCE, COORD_LIMIT, Grid, Start, grown};
+use crate::layout::{Dir, core_body, flag_box, pin_facing, place_rect, segment_hits, symbol_texts};
 use crate::netlist::{Connectivity, connect};
 use crate::schematic::{Flag, Item, Schematic, Wire};
 use crate::symbol::SymbolLibrary;
@@ -283,51 +283,85 @@ struct Scene {
     goals_b: Vec<Point>,
 }
 
-impl Scene {
-    fn new(sch: &Schematic, lib: &SymbolLibrary, a: &PinLoc, b: &PinLoc) -> Scene {
-        // Every placed pin, with its facing.
-        let mut pins: Vec<(Point, Dir)> = Vec::new();
-        let mut keepouts = Vec::new();
-        let mut texts = Vec::new();
-        let mut area = Rect::from_points(a.at, b.at);
-        let drawn: Vec<String> = bodies(sch, lib)
-            .into_iter()
-            .map(|(n, _)| n.to_ascii_uppercase())
+/// How far around the two pins the router looks for a way through. Routes
+/// that need a wider detour than this are not tidy anyway; labels do better.
+const MARGIN: i32 = 24 * GRID;
+
+/// Whether a point is far enough inside `i32` for routing arithmetic.
+fn routable(p: Point) -> bool {
+    (p.x as i64).abs() <= COORD_LIMIT && (p.y as i64).abs() <= COORD_LIMIT
+}
+
+/// Drawn bodies (core drawing, without leads) of every part that has one,
+/// with the part's pins and their facings.
+fn part_bodies(sch: &Schematic, lib: &SymbolLibrary) -> Vec<(Rect, Vec<(Point, Dir)>)> {
+    let drawn: Vec<String> = bodies(sch, lib)
+        .into_iter()
+        .map(|(n, _)| n.to_ascii_uppercase())
+        .collect();
+    let mut out = Vec::new();
+    for s in sch.symbols() {
+        let Ok((def, _)) = lib.resolve(&s.name) else {
+            continue;
+        };
+        let named = s
+            .inst_name()
+            .is_some_and(|n| drawn.contains(&n.to_ascii_uppercase()));
+        let Some(core) = core_body(&def).filter(|_| named) else {
+            continue;
+        };
+        let pins = def
+            .pins
+            .iter()
+            .map(|p| {
+                (
+                    def.pin_position(p, s.at, s.orient),
+                    pin_facing(&def, p, s.orient),
+                )
+            })
             .collect();
+        out.push((place_rect(core, s.at, s.orient), pins));
+    }
+    out
+}
+
+impl Scene {
+    /// The routing grid for joining `a` and `b`: the region around the two
+    /// pins only, so a part far away on the sheet cannot inflate it. `None`
+    /// when even that region is too large for a grid.
+    fn new(sch: &Schematic, lib: &SymbolLibrary, a: &PinLoc, b: &PinLoc) -> Option<Scene> {
+        if !routable(a.at) || !routable(b.at) {
+            return None;
+        }
+        let region = grown(Rect::from_points(a.at, b.at), MARGIN);
+        let mut grid = Grid::new(region)?;
+        let near = |r: &Rect| r.intersects(&region);
+        let mut pins: Vec<(Point, Dir)> = Vec::new();
         for s in sch.symbols() {
             let Ok((def, _)) = lib.resolve(&s.name) else {
                 continue;
             };
+            let close = def.placed_bounds(s.at, s.orient).is_some_and(|r| near(&r));
+            if !close {
+                continue;
+            }
             for p in &def.pins {
                 pins.push((
                     def.pin_position(p, s.at, s.orient),
                     pin_facing(&def, p, s.orient),
                 ));
             }
-            let named = s
-                .inst_name()
-                .is_some_and(|n| drawn.contains(&n.to_ascii_uppercase()));
-            if named && let Some(core) = core_body(&def) {
-                let body = place_rect(core, s.at, s.orient);
-                keepouts.push(body);
-                area = area.union(body);
+            for t in symbol_texts(s, &def) {
+                if near(&t) {
+                    grid.add_cost(grown(t, 2), 30);
+                }
             }
-            texts.extend(symbol_texts(s, &def));
         }
-        for w in sch.wires() {
-            area.include(w.a);
-            area.include(w.b);
-        }
-        for f in sch.flags() {
-            area.include(f.at);
-        }
-        let mut grid = Grid::new(area.inflate(12 * GRID));
-        for k in &keepouts {
-            grid.add_keepout(k.inflate(CLEARANCE));
-            grid.add_cost(k.inflate(CLEARANCE + 16), 3);
-        }
-        for t in &texts {
-            grid.add_cost(t.inflate(2), 30);
+        for (body, _) in part_bodies(sch, lib) {
+            if near(&grown(body, CLEARANCE + 16)) {
+                grid.add_keepout(grown(body, CLEARANCE));
+                grid.add_cost(grown(body, CLEARANCE + 16), 3);
+            }
         }
         let pin_points: Vec<Point> = pins.iter().map(|(p, _)| *p).collect();
         let mut m = Membership::new(sch, &pin_points);
@@ -347,27 +381,21 @@ impl Scene {
         for w in &wires {
             let id = id_of(w.a);
             grid.add_wire(w.a, w.b, id);
-            if id == NET_B
-                && let Some(d) = Dir::from_vec(w.b.x - w.a.x, w.b.y - w.a.y)
-            {
-                let mut p = w.a;
-                goals_b.push(p);
-                while p != w.b {
-                    p = d.step(p, GRID);
-                    goals_b.push(p);
-                }
+            if id == NET_B {
+                goals_b.extend(grid.points_on(w.a, w.b));
             }
         }
-        let wire_list: Vec<Wire> = wires.clone();
         let owners: Vec<(Point, Point)> = Vec::new();
         for f in sch.flags() {
+            if !region.contains(f.at) {
+                continue;
+            }
             let id = id_of(f.at);
             grid.add_flag(f.at, id);
-            let r = flag_box(f, &wire_list, &owners);
             if f.is_ground() {
                 grid.add_keepout(Rect::from_points(f.at.offset(-24, 2), f.at.offset(24, 28)));
             } else {
-                grid.add_cost(r.inflate(2), 12);
+                grid.add_cost(grown(flag_box(f, &wires, &owners), 2), 12);
             }
             if id == NET_B {
                 goals_b.push(f.at);
@@ -381,7 +409,7 @@ impl Scene {
                 goals_b.push(*p);
             }
         }
-        Scene { grid, goals_b }
+        Some(Scene { grid, goals_b })
     }
 
     fn legal(&self, path: &[Point]) -> bool {
@@ -411,6 +439,22 @@ impl Scene {
     }
 }
 
+/// Whether a path stays out of every part body and its clearance, except
+/// for a segment leaving one of that part's pins straight out along its lead.
+fn clear_of_bodies(path: &[Point], parts: &[(Rect, Vec<(Point, Dir)>)]) -> bool {
+    path.windows(2).all(|w| {
+        parts.iter().all(|(body, pins)| {
+            let zone = grown(*body, CLEARANCE);
+            !segment_hits(w[0], w[1], &zone)
+                || pins.iter().any(|&(pin, f)| {
+                    [(w[0], w[1]), (w[1], w[0])].into_iter().any(|(from, to)| {
+                        from == pin && Dir::from_vec(to.x - from.x, to.y - from.y) == Some(f)
+                    })
+                })
+        })
+    })
+}
+
 pub(crate) struct Router<'a> {
     pub lib: &'a SymbolLibrary,
 }
@@ -426,18 +470,33 @@ impl Router<'_> {
             return Route::AlreadyConnected;
         }
         let (fa, fb) = (facing(sch, self.lib, a), facing(sch, self.lib, b));
-        let scene = Scene::new(sch, self.lib, a, b);
-        let mut options: Vec<(u32, Vec<Point>)> = candidates(a.at, fa, b.at, fb)
-            .into_iter()
-            .filter(|p| scene.legal(p))
-            .map(|p| (scene.cost(&p), p))
-            .collect();
-        if let Some(p) = scene.maze(a.at, fa)
-            && scene.legal(&p)
-        {
-            options.push((scene.cost(&p), p));
-        }
-        options.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.len().cmp(&y.1.len())));
+        let options: Vec<(u32, Vec<Point>)> = match Scene::new(sch, self.lib, a, b) {
+            Some(scene) => {
+                let mut options: Vec<(u32, Vec<Point>)> = candidates(a.at, fa, b.at, fb)
+                    .into_iter()
+                    .filter(|p| scene.legal(p))
+                    .map(|p| (scene.cost(&p), p))
+                    .collect();
+                if let Some(p) = scene.maze(a.at, fa)
+                    && scene.legal(&p)
+                {
+                    options.push((scene.cost(&p), p));
+                }
+                options.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.len().cmp(&y.1.len())));
+                options
+            }
+            // No grid for this region: the tidy shapes in their own order,
+            // kept off part bodies; connectivity still checks each one.
+            None if routable(a.at) && routable(b.at) => {
+                let parts = part_bodies(sch, self.lib);
+                candidates(a.at, fa, b.at, fb)
+                    .into_iter()
+                    .filter(|p| clear_of_bodies(p, &parts))
+                    .map(|p| (0, p))
+                    .collect()
+            }
+            None => Vec::new(),
+        };
         for (_, path) in options.iter().take(16) {
             let wires = path_wires(path);
             let mut trial = sch.clone();
@@ -477,7 +536,12 @@ impl Router<'_> {
         let before = pin_partition(conn);
         let keys = [key(a), key(b)];
         let dirs = [facing(sch, self.lib, a), facing(sch, self.lib, b)];
-        for stub in [2, 1, 0] {
+        let stubs: &[i32] = if routable(a.at) && routable(b.at) {
+            &[2, 1, 0]
+        } else {
+            &[0]
+        };
+        for &stub in stubs {
             let mut trial = sch.clone();
             let mut items = Vec::new();
             for (p, d) in [a, b].into_iter().zip(dirs) {
@@ -569,6 +633,20 @@ mod tests {
                 "{w:?} grazes R2"
             );
         }
+    }
+
+    #[test]
+    fn the_grid_covers_only_the_region_of_the_route() {
+        let src = "Version 4\nSHEET 1 880 680\nWIRE -32 400 2000000000 400\nSYMBOL res 2000000000 2000000000 R0\nSYMATTR InstName RF\nSYMATTR Value 1k\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 128 0 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\n";
+        let (sch, _) = parse(src);
+        let a = crate::edit::locate(&sch, &lib(), "R1.B").unwrap();
+        let b = crate::edit::locate(&sch, &lib(), "R2.B").unwrap();
+        let scene = Scene::new(&sch, &lib(), &a, &b).expect("a small region");
+        assert!(
+            scene.grid.cell_count() < 20_000,
+            "{}",
+            scene.grid.cell_count()
+        );
     }
 
     #[test]

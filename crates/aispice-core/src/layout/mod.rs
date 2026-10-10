@@ -29,9 +29,7 @@ mod wire;
 pub use quality::{Quality, quality};
 pub use verify::compare_netlists;
 
-#[cfg(test)]
-pub(crate) use geom::segment_hits;
-pub(crate) use geom::{Dir, core_body, pin_facing, place_rect};
+pub(crate) use geom::{Dir, centre, core_body, pin_facing, place_rect, segment_hits};
 pub(crate) use text::{flag_box, symbol_texts};
 
 use crate::geometry::{GRID, Point, Rect};

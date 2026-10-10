@@ -58,34 +58,67 @@ pub(crate) struct Grid {
     vedge: Vec<u32>,
 }
 
+/// Most cells a grid may have. A large real schematic is well under a
+/// million at the 16-unit grid; a sheet with a stray item far away must not
+/// make the router allocate gigabytes.
+pub(crate) const MAX_CELLS: i64 = 2_000_000;
+
+/// Largest coordinate magnitude a grid may cover. Keeping well inside `i32`
+/// means stepping from any cell of a grid can never overflow.
+pub(crate) const COORD_LIMIT: i64 = 1 << 28;
+
+/// `r` grown by `by` on every side, saturating instead of overflowing, for
+/// rectangles that come from untrusted files.
+pub(crate) fn grown(r: Rect, by: i32) -> Rect {
+    Rect {
+        min: Point::new(r.min.x.saturating_sub(by), r.min.y.saturating_sub(by)),
+        max: Point::new(r.max.x.saturating_add(by), r.max.y.saturating_add(by)),
+    }
+}
+
 impl Grid {
-    /// A grid covering `area`, extended to grid lines.
-    pub fn new(area: Rect) -> Grid {
-        let min = Point::new(
-            area.min.x.div_euclid(GRID) * GRID,
-            area.min.y.div_euclid(GRID) * GRID,
-        );
-        let w = (area.max.x - min.x) / GRID + 2;
-        let h = (area.max.y - min.y) / GRID + 2;
-        let n = (w * h).max(1) as usize;
-        Grid {
-            origin: min,
-            w,
-            h,
+    /// A grid covering `area`, extended to grid lines, or `None` if the area
+    /// is beyond [`COORD_LIMIT`] or would need more than [`MAX_CELLS`] cells.
+    pub fn new(area: Rect) -> Option<Grid> {
+        let g = GRID as i64;
+        let (x0, y0) = (area.min.x as i64, area.min.y as i64);
+        let (x1, y1) = (area.max.x as i64, area.max.y as i64);
+        if [x0, y0, x1, y1].iter().any(|v| v.abs() > COORD_LIMIT) || x1 < x0 || y1 < y0 {
+            return None;
+        }
+        let (mx, my) = (x0.div_euclid(g) * g, y0.div_euclid(g) * g);
+        let w = (x1 - mx) / g + 2;
+        let h = (y1 - my) / g + 2;
+        let n = w.checked_mul(h)?;
+        if n > MAX_CELLS {
+            return None;
+        }
+        let n = n.max(1) as usize;
+        Some(Grid {
+            origin: Point::new(mx as i32, my as i32),
+            w: w as i32,
+            h: h as i32,
             cells: vec![Cell::default(); n],
             hedge: vec![0; n],
             vedge: vec![0; n],
-        }
+        })
+    }
+
+    /// Number of cells, for tests that check a grid stayed small.
+    #[cfg(test)]
+    pub(crate) fn cell_count(&self) -> usize {
+        self.cells.len()
     }
 
     fn idx(&self, p: Point) -> Option<usize> {
-        let dx = p.x - self.origin.x;
-        let dy = p.y - self.origin.y;
-        if dx < 0 || dy < 0 || dx % GRID != 0 || dy % GRID != 0 {
+        let g = GRID as i64;
+        let dx = p.x as i64 - self.origin.x as i64;
+        let dy = p.y as i64 - self.origin.y as i64;
+        if dx < 0 || dy < 0 || dx % g != 0 || dy % g != 0 {
             return None;
         }
-        let (gx, gy) = (dx / GRID, dy / GRID);
-        (gx < self.w && gy < self.h).then(|| (gy * self.w + gx) as usize)
+        let (gx, gy) = (dx / g, dy / g);
+        (gx < self.w as i64 && gy < self.h as i64).then(|| (gy * self.w as i64 + gx) as usize)
     }
 
     fn point(&self, i: usize) -> Point {
@@ -101,24 +134,41 @@ impl Grid {
         self.idx(d.step(p, GRID))
     }
 
-    /// Grid points strictly inside `r`.
+    /// The grid lines (as coordinates) from `lo` to `hi` inclusive, clipped to
+    /// the grid along one axis whose origin is `origin` and length `cells`.
+    fn lines(origin: i32, cells: i32, lo: i64, hi: i64) -> std::ops::RangeInclusive<i64> {
+        let g = GRID as i64;
+        let first = origin as i64;
+        let last = first + (cells as i64 - 1) * g;
+        let lo = lo.max(first);
+        let hi = hi.min(last);
+        let start = first + (lo - first + g - 1).div_euclid(g) * g;
+        let end = first + (hi - first).div_euclid(g) * g;
+        start..=end
+    }
+
+    /// Grid points strictly inside `r`, clipped to the grid.
     fn inside(&self, r: Rect) -> Vec<usize> {
         let mut out = Vec::new();
-        let x0 = (r.min.x).div_euclid(GRID) * GRID;
-        let y0 = (r.min.y).div_euclid(GRID) * GRID;
-        let mut y = y0;
-        while y < r.max.y {
-            let mut x = x0;
-            while x < r.max.x {
-                if x > r.min.x
-                    && y > r.min.y
-                    && let Some(i) = self.idx(Point::new(x, y))
-                {
+        let g = GRID as usize;
+        let xs = Self::lines(
+            self.origin.x,
+            self.w,
+            r.min.x as i64 + 1,
+            r.max.x as i64 - 1,
+        );
+        let ys = Self::lines(
+            self.origin.y,
+            self.h,
+            r.min.y as i64 + 1,
+            r.max.y as i64 - 1,
+        );
+        for y in ys.step_by(g) {
+            for x in xs.clone().step_by(g) {
+                if let Some(i) = self.idx(Point::new(x as i32, y as i32)) {
                     out.push(i);
                 }
-                x += GRID;
             }
-            y += GRID;
         }
         out
     }
@@ -160,6 +210,36 @@ impl Grid {
         }
     }
 
+    /// The grid points on segment `a`-`b` that lie inside the grid, in order
+    /// from the lower coordinate. Wires off the grid's lines have none, and a
+    /// wire running far outside the grid costs only its part inside.
+    pub fn points_on(&self, a: Point, b: Point) -> Vec<Point> {
+        let g = GRID as usize;
+        if a.y == b.y {
+            if (a.y as i64 - self.origin.y as i64).rem_euclid(GRID as i64) != 0 {
+                return Vec::new();
+            }
+            let (lo, hi) = (a.x.min(b.x) as i64, a.x.max(b.x) as i64);
+            Self::lines(self.origin.x, self.w, lo, hi)
+                .step_by(g)
+                .map(|x| Point::new(x as i32, a.y))
+                .filter(|p| self.idx(*p).is_some())
+                .collect()
+        } else if a.x == b.x {
+            if (a.x as i64 - self.origin.x as i64).rem_euclid(GRID as i64) != 0 {
+                return Vec::new();
+            }
+            let (lo, hi) = (a.y.min(b.y) as i64, a.y.max(b.y) as i64);
+            Self::lines(self.origin.y, self.h, lo, hi)
+                .step_by(g)
+                .map(|y| Point::new(a.x, y as i32))
+                .filter(|p| self.idx(*p).is_some())
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// A wire of `net`. Its ends and corners belong to the net; its interior
     /// may be crossed by other nets but not followed.
     pub fn add_wire(&mut self, a: Point, b: Point, net: u32) {
@@ -169,38 +249,50 @@ impl Grid {
                 self.cells[i].owner = tag;
             }
         }
-        let Some(d) = Dir::from_vec(b.x - a.x, b.y - a.y) else {
+        let horizontal = a.y == b.y;
+        if !horizontal && a.x != b.x {
             return;
-        };
-        let mut p = a;
-        while p != b {
-            let q = d.step(p, GRID);
-            if let (Some(i), Some(j)) = (self.idx(p), self.idx(q)) {
-                match d {
-                    Dir::Right => self.hedge[i] = tag,
-                    Dir::Left => self.hedge[j] = tag,
-                    Dir::Down => self.vedge[i] = tag,
-                    Dir::Up => self.vedge[j] = tag,
-                }
-                if q != b {
-                    if d.horizontal() {
-                        self.cells[j].hwire = tag;
-                    } else {
-                        self.cells[j].vwire = tag;
-                    }
+        }
+        let pts = self.points_on(a, b);
+        for (k, p) in pts.iter().enumerate() {
+            let Some(i) = self.idx(*p) else { continue };
+            if *p != a && *p != b {
+                if horizontal {
+                    self.cells[i].hwire = tag;
+                } else {
+                    self.cells[i].vwire = tag;
                 }
             }
-            p = q;
+            // The edge to the next grid point, when both lie on the wire.
+            if let Some(next) = pts.get(k + 1)
+                && (next.x - p.x).abs() + (next.y - p.y).abs() == GRID
+            {
+                if horizontal {
+                    self.hedge[i] = tag;
+                } else {
+                    self.vedge[i] = tag;
+                }
+            }
         }
         // Keep other wires a track away where they can be.
-        let (dx, dy) = d.vec();
-        let side = Point::new(dy.abs() * GRID, dx.abs() * GRID);
+        let side = if horizontal {
+            Point::new(0, GRID)
+        } else {
+            Point::new(GRID, 0)
+        };
         let lo = Point::new(a.x.min(b.x), a.y.min(b.y));
         let hi = Point::new(a.x.max(b.x), a.y.max(b.y));
-        let r = Rect::from_points(
-            lo.offset(-side.x - 1, -side.y - 1),
-            hi.offset(side.x + 1, side.y + 1),
-        );
+        let r = grown(Rect::from_points(lo, hi), 1);
+        let r = Rect {
+            min: Point::new(
+                r.min.x.saturating_sub(side.x),
+                r.min.y.saturating_sub(side.y),
+            ),
+            max: Point::new(
+                r.max.x.saturating_add(side.x),
+                r.max.y.saturating_add(side.y),
+            ),
+        };
         self.add_cost(r, 3);
     }
 
@@ -339,10 +431,17 @@ impl Grid {
             heap.push(Reverse((h(i), 0u32, st)));
         }
         let mut found = None;
+        // Each state is settled once; the budget only stops a search that
+        // would otherwise wander a huge or pathological maze.
+        let mut budget = n.saturating_mul(2);
         while let Some(Reverse((_, g, st))) = heap.pop() {
             if g > best[st] {
                 continue;
             }
+            if budget == 0 {
+                break;
+            }
+            budget -= 1;
             let (i, din) = (st / 5, st % 5);
             if din != 4 && is_goal[i] {
                 found = Some(st);
@@ -445,23 +544,24 @@ impl Grid {
     /// The cost of a finished route, for comparing alternatives.
     pub fn path_cost(&self, path: &[Point], own: &[u32]) -> u32 {
         let tags: Vec<u32> = own.iter().map(|n| n + 1).collect();
-        let mut cost = 0;
+        let mut cost: u32 = 0;
         for (k, w) in path.windows(2).enumerate() {
             let Some(d) = Dir::from_vec(w[1].x - w[0].x, w[1].y - w[0].y) else {
                 continue;
             };
             if k > 0 {
-                cost += BEND;
+                cost = cost.saturating_add(BEND);
             }
-            let mut p = w[0];
-            while p != w[1] {
-                p = d.step(p, GRID);
+            for p in self.points_on(w[0], w[1]) {
+                if p == w[0] {
+                    continue;
+                }
                 if let Some(i) = self.idx(p) {
                     let c = &self.cells[i];
-                    cost += STEP + c.cost;
+                    cost = cost.saturating_add(STEP + c.cost);
                     let across = if d.horizontal() { c.vwire } else { c.hwire };
                     if across != 0 && !tags.contains(&across) {
-                        cost += CROSS;
+                        cost = cost.saturating_add(CROSS);
                     }
                 }
             }
@@ -500,7 +600,7 @@ mod tests {
 
     #[test]
     fn straight_route_when_clear() {
-        let g = Grid::new(area());
+        let g = Grid::new(area()).unwrap();
         let path = g
             .route(
                 &[Start {
@@ -517,7 +617,7 @@ mod tests {
 
     #[test]
     fn crosses_but_never_follows_or_touches_another_net() {
-        let mut g = Grid::new(area());
+        let mut g = Grid::new(area()).unwrap();
         // Net 1 runs vertically through the straight line.
         g.add_wire(Point::new(64, -64), Point::new(64, 64), 1);
         let path = g
@@ -550,7 +650,7 @@ mod tests {
 
     #[test]
     fn keepout_forces_a_detour_but_corridors_let_pins_out() {
-        let mut g = Grid::new(area());
+        let mut g = Grid::new(area()).unwrap();
         g.add_keepout(Rect::from_points(Point::new(40, -40), Point::new(88, 40)));
         g.add_pin(Point::new(48, 0), Dir::Left, 0);
         let path = g
@@ -577,5 +677,37 @@ mod tests {
             )
             .unwrap();
         assert!(around.len() > 2, "{around:?}");
+    }
+
+    #[test]
+    fn oversized_or_far_areas_get_no_grid() {
+        let far = Rect::from_points(Point::new(0, 0), Point::new(2_000_000_000, 2_000_000_000));
+        assert!(Grid::new(far).is_none());
+        let wide = Rect::from_points(Point::new(0, 0), Point::new(16 * 3_000, 16 * 3_000));
+        assert!(Grid::new(wide).is_none());
+        let edge = Rect::from_points(Point::new(i32::MAX - 64, 0), Point::new(i32::MAX, 64));
+        assert!(Grid::new(edge).is_none());
+        assert!(Grid::new(area()).is_some());
+    }
+
+    #[test]
+    fn off_grid_and_far_wires_are_cheap_to_add() {
+        let mut g = Grid::new(area()).unwrap();
+        // Off the grid's lines: must not loop looking for the far end.
+        g.add_wire(Point::new(8, 0), Point::new(100, 0), 1);
+        g.add_wire(Point::new(3, 5), Point::new(3, 77), 1);
+        // Reaching far outside the grid: only the part inside counts.
+        g.add_wire(Point::new(0, 32), Point::new(2_000_000_000, 32), 2);
+        g.add_wire(Point::new(i32::MIN, 64), Point::new(i32::MAX, 64), 2);
+        g.add_keepout(Rect::from_points(
+            Point::new(i32::MIN, i32::MIN),
+            Point::new(i32::MAX, -100),
+        ));
+        assert!(
+            g.points_on(Point::new(0, 32), Point::new(2_000_000_000, 32))
+                .len()
+                < 64
+        );
+        assert!(!g.segment_free(Point::new(0, 32), Point::new(64, 32), 0));
     }
 }

@@ -9,7 +9,8 @@
 
 use super::EditError;
 use crate::geometry::{GRID, Orient, Point, Rect, snap};
-use crate::layout::{Dir, flag_box, pin_facing, symbol_texts};
+use crate::layout::maze::COORD_LIMIT;
+use crate::layout::{Dir, centre, flag_box, pin_facing, symbol_texts};
 use crate::schematic::{Item, Schematic, Symbol, Wire};
 use crate::symbol::{SymbolDef, SymbolLibrary};
 
@@ -23,15 +24,22 @@ const PIN_HALO: i32 = 3 * GRID;
 
 /// The room in front of a pin facing `f`.
 fn pin_halo(at: Point, f: Dir) -> Rect {
-    let end = f.step(at, PIN_HALO);
-    let side = if f.horizontal() {
-        Point::new(0, 12)
-    } else {
-        Point::new(12, 0)
-    };
+    // Saturating: pins come from files, and a part may sit anywhere.
+    let (dx, dy) = f.vec();
+    let end = Point::new(
+        at.x.saturating_add(dx * PIN_HALO),
+        at.y.saturating_add(dy * PIN_HALO),
+    );
+    let (sx, sy) = if f.horizontal() { (0, 12) } else { (12, 0) };
     Rect::from_points(
-        Point::new(at.x.min(end.x), at.y.min(end.y)) - side,
-        Point::new(at.x.max(end.x), at.y.max(end.y)) + side,
+        Point::new(
+            at.x.min(end.x).saturating_sub(sx),
+            at.y.min(end.y).saturating_sub(sy),
+        ),
+        Point::new(
+            at.x.max(end.x).saturating_add(sx),
+            at.y.max(end.y).saturating_add(sy),
+        ),
     )
 }
 
@@ -75,7 +83,8 @@ fn occupied(sch: &Schematic, lib: &SymbolLibrary) -> Occupied {
     let mut pin_owners = Vec::new();
     for s in sch.symbols() {
         let Ok((def, _)) = lib.resolve(&s.name) else {
-            zones.push(Rect::from_points(s.at, s.at.offset(64, 64)));
+            let far = Point::new(s.at.x.saturating_add(64), s.at.y.saturating_add(64));
+            zones.push(Rect::from_points(s.at, far));
             continue;
         };
         if let Some(b) = def.placed_bounds(s.at, s.orient) {
@@ -83,7 +92,7 @@ fn occupied(sch: &Schematic, lib: &SymbolLibrary) -> Occupied {
             for t in symbol_texts(s, &def) {
                 z = z.union(t);
             }
-            let c = Point::new((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2);
+            let c = centre(b);
             for p in &def.pins {
                 let at = def.pin_position(p, s.at, s.orient);
                 pin_owners.push((at, c));
@@ -196,40 +205,25 @@ pub(crate) fn free_spot(
             break;
         }
         let d = ring * GRID;
+        let d = d as i64;
+        let (ax0, ay0) = (anchor.min.x as i64, anchor.min.y as i64);
+        let (ax1, ay1) = (anchor.max.x as i64, anchor.max.y as i64);
+        let (px0, py0) = (probe.min.x as i64, probe.min.y as i64);
+        let (px1, py1) = (probe.max.x as i64, probe.max.y as i64);
         let candidates = [
-            (
-                0,
-                Point::new(anchor.max.x + d - probe.min.x, anchor.min.y - probe.min.y),
-            ),
-            (
-                1,
-                Point::new(anchor.min.x - probe.min.x, anchor.max.y + d - probe.min.y),
-            ),
-            (
-                2,
-                Point::new(anchor.min.x - d - probe.max.x, anchor.min.y - probe.min.y),
-            ),
-            (
-                3,
-                Point::new(anchor.min.x - probe.min.x, anchor.min.y - d - probe.max.y),
-            ),
-            (
-                4,
-                Point::new(
-                    anchor.max.x + d - probe.min.x,
-                    anchor.max.y + d - probe.min.y,
-                ),
-            ),
-            (
-                5,
-                Point::new(
-                    anchor.max.x + d - probe.min.x,
-                    anchor.min.y - d - probe.max.y,
-                ),
-            ),
+            (0, ax1 + d - px0, ay0 - py0),
+            (1, ax0 - px0, ay1 + d - py0),
+            (2, ax0 - d - px1, ay0 - py0),
+            (3, ax0 - px0, ay0 - d - py1),
+            (4, ax1 + d - px0, ay1 + d - py0),
+            (5, ax1 + d - px0, ay0 - d - py1),
         ];
-        for (side, c) in candidates {
-            let c = Point::new(snap(c.x), snap(c.y));
+        for (side, x, y) in candidates {
+            // Anchors come from files: skip spots beyond safe coordinates.
+            if x.abs() > COORD_LIMIT || y.abs() > COORD_LIMIT {
+                continue;
+            }
+            let c = Point::new(snap(x as i32), snap(y as i32));
             if !fits(c) {
                 continue;
             }
@@ -245,7 +239,7 @@ pub(crate) fn free_spot(
     }
     let b =
         content_bounds(sch, lib).unwrap_or(Rect::from_points(Point::new(0, 0), Point::new(0, 0)));
-    Ok(Point::new(snap(b.max.x + 256), snap(b.min.y)))
+    Ok(Point::new(snap(b.max.x.saturating_add(256)), snap(b.min.y)))
 }
 
 /// Below the circuit, under any existing text.
@@ -254,8 +248,8 @@ pub(crate) fn text_spot(sch: &Schematic, lib: &SymbolLibrary) -> Point {
         content_bounds(sch, lib).unwrap_or(Rect::from_points(Point::new(0, 0), Point::new(0, 0)));
     let lowest_text = sch.texts().map(|t| t.at.y).max();
     let y = match lowest_text {
-        Some(ty) if ty >= b.max.y - GRID * 4 => ty + 32,
-        _ => b.max.y + 48,
+        Some(ty) if ty >= b.max.y.saturating_sub(GRID * 4) => ty.saturating_add(32),
+        _ => b.max.y.saturating_add(48),
     };
     Point::new(snap(b.min.x), snap(y))
 }

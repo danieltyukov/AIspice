@@ -29,3 +29,14 @@ fn empty_netlist_is_an_error() {
     .unwrap_err();
     assert_eq!(err, LayoutError::Empty);
 }
+
+#[test]
+fn a_value_too_long_to_route_around_still_lays_out() {
+    // Thousands of characters of value text make the drawing too wide for a
+    // routing grid; every pin then gets a label, which still connects.
+    let value = "1".repeat(200_000);
+    let text = format!("t\nV1 in 0 1\nR1 in out {value}\nR2 out 0 1k\n.op\n");
+    let r = lay(&text);
+    assert!(r.schematic.wires().count() == 0, "labels only");
+    assert!(r.schematic.flags().count() >= 4);
+}

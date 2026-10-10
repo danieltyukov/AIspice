@@ -6,7 +6,7 @@
 //! area used. The score folds them into one number so candidate layouts can be
 //! ranked, and so edits can be checked for making a drawing worse.
 
-use super::geom::{Dir, core_body, overlaps, pin_facing, place_rect, segment_hits};
+use super::geom::{Dir, centre, core_body, overlaps, pin_facing, place_rect, segment_hits};
 use super::text::{flag_box, sheet_texts, symbol_texts};
 use crate::geometry::{Point, Rect};
 use crate::schematic::{Schematic, Wire};
@@ -86,10 +86,7 @@ pub fn quality(sch: &Schematic, lib: &SymbolLibrary) -> Quality {
     let pin_owners: Vec<(Point, Point)> = parts
         .iter()
         .flat_map(|p| {
-            let c = Point::new(
-                (p.body.min.x + p.body.max.x) / 2,
-                (p.body.min.y + p.body.max.y) / 2,
-            );
+            let c = centre(p.body);
             p.pins.iter().map(move |&pin| (pin, c))
         })
         .collect();
@@ -173,7 +170,7 @@ pub fn quality(sch: &Schematic, lib: &SymbolLibrary) -> Quality {
         let hits_wire = wires.iter().any(|w| {
             // A label's own wire leads up to its text; only count wires that
             // pass through the text itself.
-            if anchor.is_some_and(|a| crate::geometry::on_segment(a, w.a, w.b)) {
+            if anchor.is_some_and(|a| super::geom::on_segment(a, w.a, w.b)) {
                 return false;
             }
             segment_hits(w.a, w.b, b)
@@ -195,7 +192,7 @@ pub fn quality(sch: &Schematic, lib: &SymbolLibrary) -> Quality {
     // Corners and length.
     let mut ends: HashMap<Point, Vec<&Wire>> = HashMap::new();
     for w in &wires {
-        q.wire_length += ((w.a.x - w.b.x).abs() + (w.a.y - w.b.y).abs()) as i64;
+        q.wire_length += (w.a.x as i64 - w.b.x as i64).abs() + (w.a.y as i64 - w.b.y as i64).abs();
         ends.entry(w.a).or_default().push(w);
         ends.entry(w.b).or_default().push(w);
     }
@@ -209,7 +206,7 @@ pub fn quality(sch: &Schematic, lib: &SymbolLibrary) -> Quality {
             && (ws[0].a.x == ws[0].b.x) != (ws[1].a.x == ws[1].b.x)
             && !wires
                 .iter()
-                .any(|w| w.a != *p && w.b != *p && crate::geometry::on_segment(*p, w.a, w.b))
+                .any(|w| w.a != *p && w.b != *p && super::geom::on_segment(*p, w.a, w.b))
         {
             q.bends += 1;
         }
@@ -231,7 +228,9 @@ pub fn quality(sch: &Schematic, lib: &SymbolLibrary) -> Quality {
         add(flag_box(f, &wires, &pin_owners));
     }
     if let Some(b) = bounds {
-        q.area = b.width() as i64 * b.height() as i64;
+        let w = b.max.x as i64 - b.min.x as i64;
+        let h = b.max.y as i64 - b.min.y as i64;
+        q.area = w.saturating_mul(h);
     }
 
     q.score = score(&q, parts.len());
@@ -269,6 +268,15 @@ mod tests {
         assert_eq!(q.wires_through_bodies, 0, "{q:?}");
         assert_eq!(q.overlapping_parts, 0, "{q:?}");
         assert!(q.score > 80.0, "{q:?}");
+    }
+
+    #[test]
+    fn extreme_coordinates_do_not_overflow() {
+        let src = "Version 4\nSHEET 1 880 680\nWIRE -2000000000 0 2000000000 0\nWIRE 0 -2000000000 0 2000000000\nFLAG 2000000000 2000000000 far\nSYMBOL res 2000000000 -2000000000 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res -2000000000 2000000000 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\n";
+        let (sch, _) = parse(src);
+        let q = quality(&sch, &SymbolLibrary::builtin_only());
+        assert_eq!(q.crossings, 1, "{q:?}");
+        assert!(q.area > 0 && q.wire_length == 8_000_000_000, "{q:?}");
     }
 
     #[test]

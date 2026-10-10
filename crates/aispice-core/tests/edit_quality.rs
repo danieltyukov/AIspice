@@ -62,6 +62,42 @@ fn common_emitter_by_edits() -> Schematic {
     sch
 }
 
+/// A sheet with a part, a wire and a label two billion units away, as an
+/// untrusted file might have. Routing near the origin must not build a grid
+/// spanning the sheet, and placing a part next to the far one must not
+/// overflow.
+#[test]
+fn far_away_items_do_not_inflate_routing() {
+    let src = "Version 4\nSHEET 1 880 680\n\
+        WIRE -32 400 2000000000 400\n\
+        WIRE 2000000400 2000000096 2000000400 2000000200\n\
+        WIRE 8 -40 100 -40\n\
+        FLAG 2000000400 2000000200 far\n\
+        SYMBOL res 2000000000 2000000000 R0\nSYMATTR InstName RF\nSYMATTR Value 1k\n\
+        SYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\n\
+        SYMBOL res 128 0 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\n";
+    let (mut sch, _) = aispice_core::schematic::parse(src);
+    let started = std::time::Instant::now();
+    let report = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[
+            {"op": "connect", "from": "R1.B", "to": "R2.B"},
+            {"op": "connect_to_net", "pin": "R2.A", "net": "far"},
+            {"op": "add_component", "symbol": "cap", "name": "C9", "value": "1n", "near": "RF"}
+        ]"#),
+    )
+    .expect("edits apply");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(report.applied[0].starts_with("Wired"), "{report:#?}");
+    assert_eq!(net(&sch, "R1", "B"), net(&sch, "R2", "B"));
+    assert_eq!(net(&sch, "R2", "A"), "far");
+}
+
 fn net(sch: &Schematic, inst: &str, pin: &str) -> String {
     connect(sch, &lib())
         .net_of(inst, pin)

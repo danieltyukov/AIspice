@@ -248,7 +248,7 @@ pub(crate) fn flag_box(f: &Flag, wires: &[Wire], pins: &[(Point, Point)]) -> Rec
             s.mark(w.b.x - p.x, w.b.y - p.y);
         } else if w.b == p {
             s.mark(w.a.x - p.x, w.a.y - p.y);
-        } else if crate::geometry::on_segment(p, w.a, w.b) {
+        } else if super::geom::on_segment(p, w.a, w.b) {
             s.mark(w.a.x - p.x, w.a.y - p.y);
             s.mark(w.b.x - p.x, w.b.y - p.y);
         }

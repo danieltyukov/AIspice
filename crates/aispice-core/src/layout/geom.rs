@@ -88,11 +88,18 @@ pub(crate) fn pin_facing_r0(def: &SymbolDef, pin: &PinDef) -> Dir {
     }
     // No straight lead: away from the centre of the drawing.
     let b = def.bounds().unwrap_or(Rect::from_points(pin.at, pin.at));
-    let (cx, cy) = ((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2);
-    let (dx, dy) = (pin.at.x - cx, pin.at.y - cy);
+    let c = centre(b);
+    let (dx, dy) = (
+        (pin.at.x as i64 - c.x as i64).signum() as i32,
+        (pin.at.y as i64 - c.y as i64).signum() as i32,
+    );
+    let (adx, ady) = (
+        (pin.at.x as i64 - c.x as i64).abs(),
+        (pin.at.y as i64 - c.y as i64).abs(),
+    );
     if dx == 0 && dy == 0 {
         Dir::Up
-    } else if dx.abs() >= dy.abs() {
+    } else if adx >= ady {
         if dx < 0 { Dir::Left } else { Dir::Right }
     } else if dy < 0 {
         Dir::Up
@@ -142,6 +149,27 @@ pub(crate) fn core_body(def: &SymbolDef) -> Option<Rect> {
         r.include(p);
     }
     Some(r)
+}
+
+/// Whether `p` lies on the segment from `a` to `b`, endpoints included,
+/// computed wide so coordinates read from a file cannot overflow.
+pub(crate) fn on_segment(p: Point, a: Point, b: Point) -> bool {
+    let w = |v: i32| v as i64;
+    let cross = (w(b.x) - w(a.x)) * (w(p.y) - w(a.y)) - (w(b.y) - w(a.y)) * (w(p.x) - w(a.x));
+    cross == 0
+        && p.x >= a.x.min(b.x)
+        && p.x <= a.x.max(b.x)
+        && p.y >= a.y.min(b.y)
+        && p.y <= a.y.max(b.y)
+}
+
+/// The centre of a rectangle, computed wide so coordinates read from a file
+/// cannot overflow.
+pub(crate) fn centre(r: Rect) -> Point {
+    Point::new(
+        ((r.min.x as i64 + r.max.x as i64) / 2) as i32,
+        ((r.min.y as i64 + r.max.y as i64) / 2) as i32,
+    )
 }
 
 /// A rectangle in a symbol's frame, placed at `origin` with `orient`.
