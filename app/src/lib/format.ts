@@ -116,12 +116,12 @@ export function relative(time: number, now = Date.now()): string {
   const d = Math.floor(h / 24);
   if (d === 1) return "yesterday";
   if (d < 7) return `${d} days ago`;
-  return new Date(time).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return new Date(time).toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** Clock time for history rows: 14:05. */
 export function clock(time: number): string {
-  return new Date(time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return new Date(time).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
 export function plural(n: number, word: string, many = `${word}s`): string {
@@ -143,3 +143,18 @@ export function vectorUnit(name: string): string {
   if (n === "frequency") return "Hz";
   return "";
 }
+
+/**
+ * A language tag Intl accepts. Under LANG=C the webview reports "C", which
+ * Intl rejects with a RangeError; then en-US is used instead.
+ */
+export function safeLocale(tag: string | undefined): string {
+  if (!tag) return "en-US";
+  try {
+    return new Intl.DateTimeFormat(tag).resolvedOptions().locale;
+  } catch {
+    return "en-US";
+  }
+}
+
+const LOCALE = safeLocale(typeof navigator === "undefined" ? undefined : navigator.language);

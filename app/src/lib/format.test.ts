@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseName, duration, eng, plural, relative, spice, spiceTicks, vectorUnit } from "./format";
+import { baseName, duration, eng, plural, relative, safeLocale, spice, spiceTicks, vectorUnit } from "./format";
 
 describe("spice", () => {
   it("writes SPICE suffixes", () => {
@@ -79,5 +79,14 @@ describe("small helpers", () => {
     expect(vectorUnit("I(R1)")).toBe("A");
     expect(vectorUnit("Ic(Q1)")).toBe("A");
     expect(vectorUnit("frequency")).toBe("Hz");
+  });
+});
+
+describe("safeLocale", () => {
+  it("keeps a valid tag and replaces the C locale WebKit reports under LANG=C", () => {
+    expect(safeLocale("de-DE")).toBe("de-DE");
+    expect(safeLocale("C")).toBe("en-US");
+    expect(safeLocale("")).toBe("en-US");
+    expect(safeLocale(undefined)).toBe("en-US");
   });
 });

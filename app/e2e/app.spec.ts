@@ -345,3 +345,17 @@ test.describe("themes and sizes", () => {
     await expect(page.getByTestId("cursor-readout").or(page.getByText("Click the plot to place cursor A"))).toBeVisible();
   });
 });
+
+/** Was a bug: under LANG=C the webview reports the language "C", uPlot's
+ *  Intl.NumberFormat threw at load and the window stayed empty. */
+test("starts when the system language is the C locale", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "language", { configurable: true, get: () => "C" });
+    Object.defineProperty(Navigator.prototype, "languages", { configurable: true, get: () => ["C"] });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("aispice");
+  expect(errors).toEqual([]);
+});
