@@ -11,7 +11,28 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-/// Ask-before-apply in a terminal: show the change and read y or n.
+/// Text from the model or a tool, made safe to print on a terminal: control
+/// characters (escape sequences could clear lines or forge a prompt) and
+/// bidirectional overrides (which reorder what is shown) become visible
+/// placeholders. Newlines and tabs are kept.
+pub fn terminal_safe(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\n' | '\t' => c,
+            c if c.is_control() => '\u{FFFD}',
+            '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{200E}'
+            | '\u{200F}'
+            | '\u{061C}' => '\u{FFFD}',
+            c => c,
+        })
+        .collect()
+}
+
+/// Ask-before-apply in a terminal: show the change and read y or n. Only an
+/// interactive terminal can approve; with piped or redirected input every
+/// change is declined, so queued input can never answer for the user.
 struct TerminalApprover;
 
 #[async_trait::async_trait]
@@ -19,9 +40,21 @@ impl aispice_tools::Approver for TerminalApprover {
     async fn approve(&self, circuit: &str, summary: &str, diff: &str) -> bool {
         let (circuit, summary, diff) = (circuit.to_string(), summary.to_string(), diff.to_string());
         tokio::task::spawn_blocking(move || {
-            eprintln!("\n--- proposed change to {circuit}: {summary}");
+            use std::io::IsTerminal;
+            if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+                eprintln!(
+                    "\n(ask-before-apply needs an interactive terminal; declined the change to {})",
+                    terminal_safe(&circuit)
+                );
+                return false;
+            }
+            eprintln!(
+                "\n--- proposed change to {}: {}",
+                terminal_safe(&circuit),
+                terminal_safe(&summary)
+            );
             for line in diff.lines().take(60) {
-                eprintln!("    {line}");
+                eprintln!("    {}", terminal_safe(line));
             }
             eprint!("Apply? [y/N] ");
             let _ = std::io::stderr().flush();
@@ -89,10 +122,10 @@ pub fn chat(args: ChatArgs) -> Result<ExitCode> {
     let turn = |text: String, history: &mut Vec<_>| -> Result<()> {
         let mut on_event = |e: AgentEvent| match e {
             AgentEvent::TextDelta { text } => {
-                print!("{text}");
+                print!("{}", terminal_safe(&text));
                 let _ = std::io::stdout().flush();
             }
-            AgentEvent::ToolStart { name, .. } => eprintln!("\n  [{name}]"),
+            AgentEvent::ToolStart { name, .. } => eprintln!("\n  [{}]", terminal_safe(&name)),
             AgentEvent::ToolEnd {
                 name,
                 output,
@@ -106,11 +139,13 @@ pub fn chat(args: ChatArgs) -> Result<ExitCode> {
                     .unwrap_or("")
                     .to_string();
                 eprintln!(
-                    "  [{name}] {} ({duration_ms} ms) {first}",
-                    if output.is_error { "failed" } else { "ok" }
+                    "  [{}] {} ({duration_ms} ms) {}",
+                    terminal_safe(&name),
+                    if output.is_error { "failed" } else { "ok" },
+                    terminal_safe(&first)
                 );
             }
-            AgentEvent::Error { message } => eprintln!("\nerror: {message}"),
+            AgentEvent::Error { message } => eprintln!("\nerror: {}", terminal_safe(&message)),
             _ => {}
         };
         rt.block_on(agent.run(
@@ -295,4 +330,22 @@ pub fn docs_tools() -> Result<ExitCode> {
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_safe;
+
+    #[test]
+    fn escape_and_bidi_sequences_are_neutralised() {
+        let hostile = "ok\u{1b}[2K\u{1b}[1A\rApply? [y/N] y\u{202E}gnp.exe\u{7}\nnext\tline";
+        let safe = terminal_safe(hostile);
+        assert!(
+            !safe.contains('\u{1b}')
+                && !safe.contains('\r')
+                && !safe.contains('\u{202E}')
+                && !safe.contains('\u{7}')
+        );
+        assert!(safe.contains("\nnext\tline"));
+    }
 }

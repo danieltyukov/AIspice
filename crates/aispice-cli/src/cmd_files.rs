@@ -54,7 +54,10 @@ pub fn netlist(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
     if ctx.json {
         println!("{}", serde_json::to_string_pretty(&built)?);
     } else {
-        print!("{}", aispice_core::netlist::write(&built.netlist));
+        print!(
+            "{}",
+            crate::cmd_agent::terminal_safe(&aispice_core::netlist::write(&built.netlist))
+        );
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -74,7 +77,7 @@ pub fn lint(ctx: &Ctx, file: &Path, strict: bool) -> Result<ExitCode> {
                 file.display(),
                 f.severity,
                 f.rule,
-                f.message
+                crate::cmd_agent::terminal_safe(&f.message)
             );
         }
     }
@@ -95,7 +98,7 @@ pub fn show(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
     if ctx.json {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
-        print!("{}", summary.to_text());
+        print!("{}", crate::cmd_agent::terminal_safe(&summary.to_text()));
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -1,3 +1,4 @@
+import { configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
@@ -27,3 +28,7 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     }),
   });
 }
+
+// A scripted agent turn streams several steps; under parallel test files it
+// can take longer than the 1 s default, so asynchronous queries wait longer.
+configure({ asyncUtilTimeout: 8000 });

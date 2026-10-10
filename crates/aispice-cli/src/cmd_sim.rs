@@ -43,7 +43,7 @@ fn print(out: &ToolOutput, json_mode: bool) {
             serde_json::to_string_pretty(&out.data).unwrap_or_default()
         );
     } else {
-        print!("{}", out.text_content());
+        print!("{}", crate::cmd_agent::terminal_safe(&out.text_content()));
         if !out.text_content().ends_with('\n') {
             println!();
         }
