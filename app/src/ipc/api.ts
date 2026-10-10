@@ -79,6 +79,16 @@ export function createTauriBackend(): Backend {
     listCircuits: () => invoke<CircuitEntry[]>("list_circuits"),
     readCircuit: (path, highlights) => invoke<CircuitView>("read_circuit", { path, highlights: highlights ?? [] }),
     newCircuit: (name) => invoke<CircuitEntry>("new_circuit", { name }),
+    pickNetlist: async () => {
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        title: "Import a SPICE netlist",
+        filters: [{ name: "SPICE netlist", extensions: ["cir", "net", "sp", "spi", "cki", "txt"] }],
+      });
+      return typeof picked === "string" ? picked : null;
+    },
+    importNetlist: (path) => invoke<CircuitEntry>("import_netlist", { path }),
     simulate: (path, simulator) => invoke<RunView>("simulate", { path, simulator: simulator ?? null }),
     waveform: (runId, dataset, signals, maxPoints) =>
       invoke<WaveData>("waveform", { runId, dataset, signals, maxPoints: maxPoints ?? null }),

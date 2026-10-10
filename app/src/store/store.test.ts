@@ -33,6 +33,17 @@ describe("Store", () => {
     expect(store.get().keys.find((k) => k.id === "anthropic")?.configured).toBe(true);
   });
 
+  it("imports a netlist as a new circuit and selects it", async () => {
+    const store = await ready();
+    await store.openFolder();
+    expect(await store.importNetlist()).toBe(true);
+    expect(store.get().active).toBe("sallen_key.asc");
+    expect(store.get().circuits.some((c) => c.path === "sallen_key.asc")).toBe(true);
+    // A second import of the same file gets its own name.
+    await store.importNetlist();
+    expect(store.get().active).toBe("sallen_key-1.asc");
+  });
+
   it("opens a folder and selects the most recently changed circuit", async () => {
     const store = await ready();
     await store.openFolder();

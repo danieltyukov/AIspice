@@ -54,6 +54,7 @@ pub fn run() {
             commands::list_circuits,
             commands::read_circuit,
             commands::new_circuit,
+            commands::import_netlist,
             commands::simulate,
             commands::waveform,
             commands::check_specs,

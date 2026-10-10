@@ -208,6 +208,52 @@ pub fn new_circuit(name: String, state: State<'_, AppState>) -> Res<Value> {
     )
 }
 
+/// Draw a SPICE netlist the user picked as a new schematic in the project,
+/// named after the netlist file. The source can be anywhere; only netlist
+/// extensions are read, with the same size and policy limits the agent's
+/// create_schematic uses.
+#[tauri::command]
+pub async fn import_netlist(path: String, state: State<'_, AppState>) -> Res<Value> {
+    let p = state.ws.project().map_err(err)?;
+    tokio::task::spawn_blocking(move || -> Res<Value> {
+        let source = Path::new(&path);
+        let ext = source
+            .extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        if !["cir", "net", "sp", "spi", "cki", "txt"].contains(&ext.as_str()) {
+            return Err("choose a SPICE netlist (.cir, .net, .sp)".into());
+        }
+        let meta = std::fs::metadata(source).map_err(|e| format!("{path}: {e}"))?;
+        if !meta.is_file() || meta.len() > aispice_tools::tools::MAX_NETLIST_BYTES as u64 {
+            return Err(format!(
+                "{path} is not a netlist file of at most {} KB",
+                aispice_tools::tools::MAX_NETLIST_BYTES / 1024
+            ));
+        }
+        let bytes = std::fs::read(source).map_err(|e| format!("{path}: {e}"))?;
+        let (text, _) = aispice_core::encoding::decode(&bytes);
+        let stem: String = source
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '_' })
+            .collect();
+        let stem = if stem.is_empty() { "imported".to_string() } else { stem };
+        let file = (0..100)
+            .map(|i| if i == 0 { format!("{stem}.asc") } else { format!("{stem}-{i}.asc") })
+            .find(|f| p.resolve(f).is_ok_and(|path| !path.exists()))
+            .ok_or("no free file name for the imported schematic")?;
+        let (sch, _notes, _score) =
+            aispice_tools::tools::layout_netlist(&text, &file, p.library())?;
+        p.create(&file, &sch).map_err(err)?;
+        Ok(json!({"path": file, "name": file, "modified": aispice_tools::project::now_ms(), "last_run": null}))
+    })
+    .await
+    .map_err(err)?
+}
+
 #[tauri::command]
 pub async fn simulate(
     path: String,

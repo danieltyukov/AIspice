@@ -259,7 +259,7 @@ pub struct CreateInput {
 
 /// Netlists larger than this are refused rather than laid out: layout cost
 /// grows quickly with the number of parts.
-const MAX_NETLIST_BYTES: usize = 64 * 1024;
+pub const MAX_NETLIST_BYTES: usize = 64 * 1024;
 const MAX_LAYOUT_ELEMENTS: usize = 150;
 
 /// SPICE treats the first line as a title. Models often leave it out, so a
@@ -279,7 +279,9 @@ fn with_title(netlist: &str, circuit: &str) -> String {
 }
 
 /// Draw a netlist as a schematic, after checking it is safe and small enough.
-fn layout_netlist(
+/// Returns the drawing, notes about lines kept as SPICE text, and the layout
+/// quality score. `circuit` names the result and titles an untitled netlist.
+pub fn layout_netlist(
     text: &str,
     circuit: &str,
     lib: &aispice_core::symbol::SymbolLibrary,

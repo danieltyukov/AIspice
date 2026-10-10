@@ -321,6 +321,30 @@ export function createMockBackend(options: MockOptions = {}): Backend {
       return view(c, highlights ?? []);
     },
 
+    async pickNetlist() {
+      await wait(60);
+      return "/home/you/circuits/filters/sallen_key.cir";
+    },
+
+    async importNetlist(file) {
+      requireProject();
+      await wait(120);
+      const stem = (file.split(/[\\/]/).pop() ?? "imported").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_.-]/g, "_");
+      let path = `${stem}.asc`;
+      for (let i = 1; circuits.has(path); i++) path = `${stem}-${i}.asc`;
+      const c: MockCircuit = {
+        path,
+        def: emptyCircuit(path),
+        versions: [{ id: nextId("snap"), time: now(), summary: `Drawn from ${file}`, state: { values: {}, flags: {} } }],
+        cursor: 0,
+        modified: now(),
+        lastRun: null,
+      };
+      circuits.set(path, c);
+      emit({ type: "circuits_listed", circuits: entries() });
+      return entry(c);
+    },
+
     async newCircuit(name) {
       requireProject();
       await wait(80);

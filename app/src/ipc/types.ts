@@ -319,6 +319,10 @@ export interface Backend {
   listCircuits(): Promise<CircuitEntry[]>;
   readCircuit(path: string, highlights?: Highlight[]): Promise<CircuitView>;
   newCircuit(name: string): Promise<CircuitEntry>;
+  /** Ask for a SPICE netlist file; null when the user cancels. */
+  pickNetlist(): Promise<string | null>;
+  /** Draw a netlist file as a new schematic in the project. */
+  importNetlist(path: string): Promise<CircuitEntry>;
   simulate(path: string, simulator?: SimulatorId | "auto"): Promise<RunView>;
   waveform(runId: string, dataset: number, signals: string[], maxPoints?: number): Promise<WaveData>;
   checkSpecs(path: string): Promise<SpecReport | null>;

@@ -307,6 +307,22 @@ export class Store {
     }
   }
 
+  /** Pick a SPICE netlist and draw it as a new schematic. */
+  async importNetlist(): Promise<boolean> {
+    try {
+      const file = await this.backend.pickNetlist();
+      if (!file) return false;
+      const entry = await this.backend.importNetlist(file);
+      await this.refreshCircuits();
+      await this.selectCircuit(entry.path);
+      this.toast(`Drew ${entry.path} from the netlist.`, "info");
+      return true;
+    } catch (err) {
+      this.toast(message(err), "error");
+      return false;
+    }
+  }
+
   clearHighlights(): void {
     if (this.state.highlights.length === 0) return;
     this.set({ highlights: [] });

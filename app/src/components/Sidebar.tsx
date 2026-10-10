@@ -145,9 +145,19 @@ export function Sidebar({ width }: { width: number }) {
             </div>
           </form>
         ) : (
-          <button type="button" className="side-add" onClick={() => setCreating(true)}>
-            New circuit
-          </button>
+          <div className="side-add-row">
+            <button type="button" className="side-add" onClick={() => setCreating(true)}>
+              New circuit
+            </button>
+            <button
+              type="button"
+              className="side-add"
+              title="Draw a SPICE netlist (.cir, .net) as a schematic"
+              onClick={() => void store.importNetlist()}
+            >
+              Import netlist
+            </button>
+          </div>
         )}
       </div>
 

@@ -134,6 +134,12 @@
     color var(--dur-quick) var(--ease);
 }
 
+.side-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
 .side-add:hover {
   border-color: var(--muted);
   color: var(--text);
