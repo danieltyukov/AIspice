@@ -295,3 +295,36 @@ async fn create_schematic_asks_for_approval() {
     assert!(text_of(&out).contains("declined"), "{}", text_of(&out));
     assert!(!dir.path().join("rc.asc").exists());
 }
+
+/// Was a gap: an operation that could not do what it was asked came back as
+/// a note while the rest of the edit was saved. Now nothing is saved and the
+/// error names the edit by its position and op.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failing_operation_saves_nothing() {
+    let (dir, ws) = workspace();
+    let netlist = "* amp\nV1 in 0 AC 1\nR1 in fb 1k\nR2 fb 0 1k\nR3 out 0 1k\n.op\n";
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "a.asc", "netlist": netlist}),
+    )
+    .await;
+    assert!(!out.is_error, "{}", text_of(&out));
+    let before = std::fs::read(dir.path().join("a.asc")).unwrap();
+    let out = call(
+        &ws,
+        "edit_schematic",
+        json!({"circuit": "a.asc", "edits": [
+            {"op": "set_value", "name": "R3", "value": "2k"},
+            {"op": "connect_to_net", "pin": "R2.A", "net": "out"}
+        ]}),
+    )
+    .await;
+    let text = text_of(&out);
+    assert!(out.is_error, "{text}");
+    assert!(
+        text.contains("No changes made. edit 1 (connect_to_net):"),
+        "{text}"
+    );
+    assert_eq!(std::fs::read(dir.path().join("a.asc")).unwrap(), before);
+}

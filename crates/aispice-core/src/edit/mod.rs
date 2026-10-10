@@ -7,6 +7,7 @@
 //! never shorts two nets by accident. A batch of edits is atomic: if any edit
 //! fails, the schematic is left as it was.
 
+mod detach;
 mod pins;
 mod place;
 mod route;
@@ -17,7 +18,7 @@ use crate::geometry::{GRID, Orient, Point};
 use crate::netlist::{connect, connect::is_ground_label};
 use crate::schematic::{Flag, Item, Schematic, Text, TextKind, Wire};
 use crate::symbol::SymbolLibrary;
-use route::{Route, Router, pin_partition, unique_label};
+use route::{Route, Router, pin_partition};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -38,6 +39,25 @@ pub enum EditError {
     NameTaken(String),
     #[error("no directive or comment contains `{0}`")]
     NoSuchText(String),
+    #[error("no label `{label}`{where_}; the labels on the sheet are: {known}")]
+    NoSuchLabel {
+        label: String,
+        where_: String,
+        known: String,
+    },
+    #[error(
+        "`{net}` is a pin of {part}, not a net name. To wire two pins together use connect with from and to; to put a pin on the same net as {net}, use connect_to_net with that net's name{current}"
+    )]
+    PinAsNet {
+        net: String,
+        part: String,
+        /// `` (`out`)``, the net the pin is on, or nothing.
+        current: String,
+    },
+    /// The operation cannot do what it was asked without changing something
+    /// it was not asked to change.
+    #[error("{0}")]
+    Refused(String),
     #[error("no wire runs from {0} to {1}")]
     NoSuchWire(Point, Point),
     #[error("refused for safety: {0}")]
@@ -93,7 +113,7 @@ pub enum EditOp {
         #[serde(default)]
         attrs: BTreeMap<String, String>,
     },
-    /// Delete a component and any wire stubs left touching nothing.
+    /// Delete a component, with the wire stubs and labels only its pins used.
     Remove {
         name: String,
     },
@@ -136,12 +156,16 @@ pub enum EditOp {
         to: String,
     },
     /// Join a pin to a named net: a short stub with a label, or a ground
-    /// symbol for `0`/`gnd`. Reuses an existing net of that name.
+    /// symbol for `0`/`gnd`. Reuses an existing net of that name. The net is
+    /// a name, never a pin reference (use connect for pin to pin), and a pin
+    /// already on another named net with other pins is refused rather than
+    /// shorting the two nets.
     ConnectToNet {
         pin: String,
         net: String,
     },
-    /// Remove the wires that end on a pin and the labels sitting on it.
+    /// Take a pin off its net: its wires go, with the stubs and labels that
+    /// served only it. Other pins that shared the net stay on it.
     Disconnect {
         pin: String,
     },
@@ -451,19 +475,32 @@ fn apply_one(
             report.added.push(name);
         }
         EditOp::Remove { name } => {
-            let idx = sch
-                .symbol_index(name)
-                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), pins::known_names(sch)))?;
+            if sch.symbol_index(name).is_none() {
+                return Err(EditError::NoSuchComponent(
+                    name.clone(),
+                    pins::known_names(sch),
+                ));
+            }
+            // Stubs and labels only this part's pins used go with it, so no
+            // stale label is left for a later edit to run into.
+            let (cleared, mut labels) = detach::clear_part(sch, lib, name);
+            let idx = sch.symbol_index(name).expect("checked above");
             sch.items.remove(idx);
-            let pruned = prune_dangling(sch, lib);
-            report.applied.push(format!(
-                "Removed {name}{}",
-                if pruned > 0 {
-                    format!(" and {pruned} loose wire(s)")
-                } else {
-                    String::new()
-                }
-            ));
+            let pruned = cleared + prune_dangling(sch, lib);
+            labels.sort_unstable();
+            labels.dedup();
+            let mut extra = Vec::new();
+            if pruned > 0 {
+                extra.push(format!("{pruned} loose wire(s)"));
+            }
+            if !labels.is_empty() {
+                extra.push(format!("its label(s) {}", labels.join(", ")));
+            }
+            report.applied.push(if extra.is_empty() {
+                format!("Removed {name}")
+            } else {
+                format!("Removed {name} and {}", extra.join(" and "))
+            });
             report.removed.push(name.clone());
         }
         EditOp::ReplaceSymbol { name, symbol } => {
@@ -575,23 +612,17 @@ fn apply_one(
                 Route::Labels { label, .. } => report.applied.push(format!(
                     "Joined {from} and {to} with net label `{label}` (no clean wire route)"
                 )),
+                Route::Failed => {
+                    return Err(EditError::Refused(format!(
+                        "could not join {from} and {to} with wires or labels without touching another net; move one of the parts to a clearer spot"
+                    )));
+                }
             }
         }
         EditOp::ConnectToNet { pin, net } => connect_to_net(sch, lib, pin, net, report)?,
         EditOp::Disconnect { pin } => {
-            let p = locate(sch, lib, pin)?;
-            let before = sch.items.len();
-            sch.items.retain(|i| match i {
-                Item::Wire(w) => w.a != p.at && w.b != p.at,
-                Item::Flag(f) => f.at != p.at,
-                _ => true,
-            });
-            let removed = before - sch.items.len();
-            let pruned = prune_dangling(sch, lib);
-            report.applied.push(format!(
-                "Disconnected {pin} ({} item(s) removed)",
-                removed + pruned
-            ));
+            let msg = detach::disconnect(sch, lib, pin)?;
+            report.applied.push(msg);
         }
         EditOp::AddWire { from, to } => {
             sch.insert(Item::Wire(Wire::new(pt(*from), pt(*to))));
@@ -627,9 +658,27 @@ fn apply_one(
             let before = sch.items.len();
             sch.items.retain(|i| !matches!(i, Item::Flag(f) if f.label.eq_ignore_ascii_case(label) && at.is_none_or(|xy| f.at == pt(xy))));
             let n = before - sch.items.len();
-            report
-                .applied
-                .push(format!("Removed {n} label(s) `{label}`"));
+            if n == 0 {
+                let mut known: Vec<String> = sch.flags().map(|f| f.label.clone()).collect();
+                known.sort_unstable();
+                known.dedup();
+                return Err(EditError::NoSuchLabel {
+                    label: label.clone(),
+                    where_: at.map(|xy| format!(" at {}", pt(xy))).unwrap_or_default(),
+                    known: if known.is_empty() {
+                        "none".into()
+                    } else {
+                        known.join(", ")
+                    },
+                });
+            }
+            // The stubs that led to those labels now end on nothing.
+            let pruned = prune_dangling(sch, lib);
+            report.applied.push(if pruned > 0 {
+                format!("Removed {n} label(s) `{label}` and {pruned} loose wire(s)")
+            } else {
+                format!("Removed {n} label(s) `{label}`")
+            });
         }
         EditOp::AddDirective { text, at } => {
             let text = text.trim().trim_start_matches('!').to_string();
@@ -696,8 +745,24 @@ fn connect_to_net(
     net: &str,
     report: &mut EditReport,
 ) -> Result<(), EditError> {
+    // `U2.out` as a net name is a pin reference, not a net: it would create
+    // a new net called u2.out instead of joining the pin's net.
+    if let Some((part, part_pin)) = split_pin_spec(net)
+        && sch.symbol(part).is_some()
+    {
+        let current = connect(sch, lib)
+            .net_of(part, part_pin)
+            .filter(|n| !n.name.starts_with("NC_"))
+            .map(|n| format!(" (`{}`)", n.name))
+            .unwrap_or_default();
+        return Err(EditError::PinAsNet {
+            net: net.to_string(),
+            part: part.to_string(),
+            current,
+        });
+    }
     let p = locate(sch, lib, pin)?;
-    let conn = connect(sch, lib);
+    let mut conn = connect(sch, lib);
     let ground = is_ground_label(net);
     let label = if ground {
         "0".to_string()
@@ -741,6 +806,37 @@ fn connect_to_net(
         ));
         return Ok(());
     }
+    // The pin is on another named net. Attaching it would join that net to
+    // this one, which is a short unless the pin is that net's only member.
+    let mut moved_from: Option<String> = None;
+    if let Some(current) = conn.net_of(&p.inst, &p.pin).filter(|n| n.labelled).cloned() {
+        let others: Vec<String> = current
+            .pins
+            .iter()
+            .filter(|q| {
+                !(q.inst.eq_ignore_ascii_case(&p.inst) && q.pin.eq_ignore_ascii_case(&p.pin))
+            })
+            .map(|q| format!("{}.{}", q.inst, q.pin))
+            .collect();
+        if !others.is_empty() {
+            return Err(EditError::Refused(format!(
+                "{pin} is on net {} with {}; attaching it to {label} would join {} and {label} into one net. To move only {pin}, disconnect it first and then connect it to {label}; to join the two nets on purpose, connect a pin of each with connect",
+                current.name,
+                others.join(", "),
+                current.name
+            )));
+        }
+        // Its labels served only this pin: take them off before attaching.
+        detach::disconnect(sch, lib, pin)?;
+        conn = connect(sch, lib);
+        moved_from = Some(current.name);
+    }
+    let done = |report: &mut EditReport, msg: String| {
+        report.applied.push(match &moved_from {
+            Some(old) => format!("{msg} (moved off {old})"),
+            None => msg,
+        });
+    };
     // If the net exists with pins, try a wire to its nearest pin first.
     if let Some(target) = conn.net(&label).filter(|n| !n.pins.is_empty() && !ground) {
         let nearest = target
@@ -756,9 +852,7 @@ fn connect_to_net(
         let before = sch.clone();
         match router.connect(sch, &p, &other, &label) {
             Route::Wires(w) if w.len() <= 3 => {
-                report
-                    .applied
-                    .push(format!("Wired {pin} to {spec} on net {label}"));
+                done(report, format!("Wired {pin} to {spec} on net {label}"));
                 return Ok(());
             }
             Route::AlreadyConnected => {
@@ -771,6 +865,14 @@ fn connect_to_net(
     // Otherwise a stub and a label (or ground symbol), checked like any route.
     let before = pin_partition(&conn);
     let key = (p.inst.to_ascii_uppercase(), p.pin.to_ascii_uppercase());
+    // Allowed merges: this pin's net with whatever already carries the label
+    // (by a pin on it, or by the label alone when the net has no pins).
+    let mut joined = vec![key.clone(), route::label_key(&label)];
+    if let Some(n) = conn.net(&label)
+        && let Some(q) = n.pins.first()
+    {
+        joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
+    }
     for stub in [2, 3, 1, 0] {
         let end = p.at.offset(p.out.0 * GRID * stub, p.out.1 * GRID * stub);
         let mut trial = sch.clone();
@@ -787,26 +889,23 @@ fn connect_to_net(
             n.name.eq_ignore_ascii_case(&label)
                 || n.labels.iter().any(|l| l.eq_ignore_ascii_case(&label))
         });
-        // Allowed merges: this pin's net with whatever already carries the label.
-        let mut joined = vec![key.clone()];
-        if let Some(n) = conn.net(&label)
-            && let Some(q) = n.pins.first()
-        {
-            joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
-        }
         if on_net && route::only_joins(&before, &after, &joined) {
             *sch = trial;
-            report.applied.push(if ground {
-                format!("Grounded {pin}")
-            } else {
-                format!("Connected {pin} to net {label}")
-            });
+            done(
+                report,
+                if ground {
+                    format!("Grounded {pin}")
+                } else {
+                    format!("Connected {pin} to net {label}")
+                },
+            );
             return Ok(());
         }
     }
-    let label_used = unique_label(&conn, &label);
-    report.warnings.push(format!("Could not attach {pin} to {label} without touching another net; nothing changed (a free label would be `{label_used}`)."));
-    Ok(())
+    Err(EditError::Refused(format!(
+        "could not attach {pin} to {label}: every stub and label tried would touch another net. Join it to a particular pin of {label} with connect, or move {} to a clearer spot",
+        p.inst
+    )))
 }
 
 /// Remove wires with an end that touches nothing at all, repeatedly, so a
