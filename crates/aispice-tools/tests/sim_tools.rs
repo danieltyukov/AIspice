@@ -633,6 +633,48 @@ async fn declined_approval_blocks_every_write() {
     assert!(text[3].contains("declined"), "{}", text[3]);
 }
 
+/// Was a gap: measure and plot fell back to the circuit's latest run even
+/// after the circuit was edited, and reported the old circuit's numbers.
+/// Now a changed circuit is simulated again first, with the analysis the
+/// earlier run used, and the answer says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn measure_never_reports_a_run_of_an_older_circuit() {
+    if !have_ngspice() {
+        eprintln!("skipped: ngspice not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let project = Project::open(dir.path(), ProjectOptions::default()).unwrap();
+    let ws = Arc::new(Workspace::with_project(project));
+    let edits: Value = serde_json::from_str(RC).unwrap();
+    let f3db = "f3db = bandwidth_3db(V(out))";
+    let results = run_script(
+        ws.clone(),
+        vec![
+            tool_reply([("a", "create_schematic", json!({"circuit": "rc.asc", "edits": edits}))]),
+            // A run with its own analysis, then a measurement on it.
+            tool_reply([("b", "simulate", json!({"circuit": "rc.asc", "simulator": "ngspice", "analysis": ".ac dec 40 10 1Meg"}))]),
+            tool_reply([("c", "measure", json!({"circuit": "rc.asc", "measurements": [f3db]}))]),
+            tool_reply([("d", "edit_schematic", json!({"circuit": "rc.asc", "edits": [{"op": "set_value", "name": "R1", "value": "100"}]}))]),
+            tool_reply([("e", "measure", json!({"circuit": "rc.asc", "measurements": [f3db]}))]),
+            text_reply("done"),
+        ],
+    )
+    .await;
+    let value = |i: usize| -> f64 {
+        let data = results[i].3.as_ref().expect("structured output");
+        data["measurements"][0]["value"].as_f64().expect("a value")
+    };
+    assert!((value(2) - 1591.5).abs() < 20.0, "{}", results[2].1);
+    // R1 went from 1k to 100: the corner moves up tenfold.
+    assert!((value(4) - 15915.0).abs() < 200.0, "{}", results[4].1);
+    assert!(
+        results[4].1.contains("rc.asc changed since run"),
+        "{}",
+        results[4].1
+    );
+}
+
 /// The desktop app shows a spec's value with its unit and the margin as the
 /// distance to the nearest limit in that unit.
 #[test]

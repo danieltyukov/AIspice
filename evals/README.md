@@ -40,7 +40,7 @@ aispice eval --provider google --model gemini-3.1-flash-lite --jobs 1 --rpm 5 --
 
 1. The task's `files/` folder is copied into a new temporary project named after the task. A task without `files/` starts from an empty project.
 2. The agent gets the task prompt as the user's message, the usual system prompt and tools, and the task's step budget (the number of model calls it may make). Edits are applied at once; nobody is asked to approve them.
-3. The project uses aispice's built-in symbols only, even when LTspice is installed, so results compare across machines. The agent's simulations run on ngspice.
+3. The project uses aispice's built-in symbols and embedded models only (the `embedded_models_only` runner setting), even when LTspice is installed, so results compare across machines. The agent's simulations and the judge's run on ngspice.
 4. The judge then:
    - simulates the judged circuit on ngspice, with the task's analysis directive in place of the circuit's own when the task gives one, and evaluates the spec table;
    - runs the electrical rule checks; any lint error fails the task;

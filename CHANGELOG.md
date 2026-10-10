@@ -24,6 +24,14 @@ A rewrite. aispice is now one Rust engine with three front ends: a desktop app, 
 - Linux launcher integration: the dock and app grid show the aispice icon on X11 and Wayland, from the packages and from an AppImage.
 - Simulation on ngspice, Xyce, LTspice (native or under Wine, headless with `xvfb-run`) and Cadence Spectre over SSH.
 - Measurements (gain, bandwidth, phase and gain margin, overshoot, settling, rise and fall time, RMS and more), spec tables with margins, parameter sweeps, Monte Carlo with yield, and an optimizer.
+- `peaking_db` and `q_lowpass` measurements, so a filter's shape (a Butterworth claim) can be checked as well as its corner.
+- Lint rule `unknown-subckt`: a part calls a subcircuit that nothing defines, such as an op-amp whose value was replaced by a parameter. A library aispice cannot read suppresses it.
+- `embedded_models_only` setting: simulate with aispice's embedded models and the project's own files only, never with LTspice's library. `aispice eval` always runs this way, so results compare across machines.
+- Edits that cannot do what they were asked fail as a whole with nothing saved, naming the edit and its op; schema mistakes name the edit and the fields its op takes, and common aliases (`to` for `net` in connect_to_net, and others listed in the schema) are accepted.
+- `disconnect` and `remove` take along the stubs and labels that served only that pin or part, and `disconnect` keeps the other pins on their net; `connect_to_net` refuses a pin reference as a net name and refuses to short two named nets.
+- `read_schematic` shows an op-amp's subcircuit name as its value and its SpiceLine parameters apart, and `set_value` refuses parameters on a subcircuit call, pointing to `set_attr`.
+- `measure`, `plot` and `read_waveform` simulate again, with the same analysis, when the circuit has changed since the run they would read.
+- Schematic diffs report only the connections that changed.
 - `aispice check` for testing circuits against their specs in CI.
 - Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, Ollama and any OpenAI-compatible endpoint.
 - Lint rules, SVG and PNG rendering, and plots.

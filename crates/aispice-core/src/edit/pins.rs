@@ -75,7 +75,15 @@ pub fn locate(sch: &Schematic, lib: &SymbolLibrary, spec: &str) -> Result<PinLoc
                 .enumerate()
                 .map(|(i, p)| format!("{} ({})", p.name, i + 1))
                 .collect();
-            EditError::NoSuchPin(spec.to_string(), names.join(", "))
+            let real: Vec<&str> = ordered.iter().map(|p| p.name.as_str()).collect();
+            let mut list = names.join(", ");
+            if let Some(g) = guess_pin(pin, &real) {
+                list.push_str(&format!(
+                    "; did you mean {}.{g}?",
+                    sym.inst_name().unwrap_or(inst)
+                ));
+            }
+            EditError::NoSuchPin(spec.to_string(), list)
         })?;
     let at = def.pin_position(pdef, sym.at, sym.orient);
     let center = body_center(&def, sym.at, sym.orient);
@@ -93,6 +101,53 @@ pub fn locate(sch: &Schematic, lib: &SymbolLibrary, spec: &str) -> Result<PinLoc
         at,
         out,
     })
+}
+
+/// The pin a model most likely meant by a name the part does not have:
+/// op-amp pins are written In-, In+ and OUT in many libraries, while the
+/// built-in op-amp calls them invin, noninvin and out.
+fn guess_pin<'a>(asked: &str, real: &[&'a str]) -> Option<&'a str> {
+    const GROUPS: &[(&[&str], &[&str])] = &[
+        (
+            &[
+                "in-",
+                "-in",
+                "inn",
+                "in_n",
+                "inm",
+                "vin-",
+                "inv",
+                "inverting",
+                "minus",
+                "-",
+            ],
+            &["invin", "in-", "inn", "-"],
+        ),
+        (
+            &[
+                "in+",
+                "+in",
+                "inp",
+                "in_p",
+                "vin+",
+                "noninv",
+                "noninverting",
+                "non-inverting",
+                "plus",
+                "+",
+            ],
+            &["noninvin", "in+", "inp", "+"],
+        ),
+        (&["out", "output", "vout", "o"], &["out", "output", "vout"]),
+        (&["v+", "vcc", "vdd", "vs+"], &["v+", "vcc", "vdd"]),
+        (&["v-", "vee", "vss", "vs-"], &["v-", "vee", "vss"]),
+    ];
+    let asked = asked.to_ascii_lowercase();
+    GROUPS
+        .iter()
+        .filter(|(aliases, _)| aliases.contains(&asked.as_str()))
+        .flat_map(|(_, targets)| targets.iter())
+        .find_map(|t| real.iter().find(|r| r.eq_ignore_ascii_case(t)).copied())
 }
 
 /// Centre of the part body. Uses the drawing when there is one, otherwise the
