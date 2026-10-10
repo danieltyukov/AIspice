@@ -327,7 +327,7 @@ fn path_like_values(line: &str) -> Vec<String> {
         }
     }
     for (i, &(t, before)) in tokens.iter().enumerate() {
-        let divides = before == Some(')') && t.starts_with('/');
+        let divides = before == Some(')') && is_division(t, line);
         let (key, value) = match t.split_once('=') {
             Some((k, "")) => (
                 k.to_ascii_lowercase(),
@@ -348,6 +348,38 @@ fn path_like_values(line: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Whether a token that follows `)` is the rest of a division, as in the
+/// `/V` of `V(out)/V(in)`, rather than a path. Deliberately narrow, so no
+/// simulator could read it as a file: one slash, then a single number or a
+/// plain identifier (no further slash, no backslash, no dot except in a
+/// number), and never on a line that includes files.
+fn is_division(token: &str, line: &str) -> bool {
+    let first = line
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if INCLUDES.contains(&first.as_str()) {
+        return false;
+    }
+    // `{V(a)/2}` leaves `/2}`: the brace closes the expression.
+    let Some(rest) = token.strip_prefix('/').map(|r| r.trim_end_matches('}')) else {
+        return false;
+    };
+    let identifier = rest
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let number = rest
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || c == '.')
+        && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '.')
+        && rest.matches('.').count() <= 1;
+    identifier || number
 }
 
 /// `C:\x`, `C:/x` and also drive-relative `C:x`, which Windows (and Wine)
@@ -575,6 +607,12 @@ mod tests {
             "V1 a 0 wavefile=/etc/passwd",
             ".lib (/etc/passwd)",
             "V1 a 0 PWL file=/etc/x",
+            // After `)`, still a path unless it is a plain identifier or number.
+            ".meas TRAN r PARAM V(a)/etc/passwd",
+            ".meas TRAN r PARAM V(a)/models.lib",
+            ".meas TRAN r PARAM V(a)/..",
+            ".inc x)/etc",
+            "R1 a b R=V(a)/C:x",
         ] {
             assert!(!check_lexical(bad).is_empty(), "{bad} was allowed");
         }
