@@ -4,7 +4,7 @@ Generated with `aispice docs tools`. The desktop app's agent and the MCP server 
 
 ## `list_circuits`
 
-List the circuit files in the open project (.asc schematics and SPICE netlists), newest first. Call this first when you do not know the file names.
+List the circuit files in the open project (.asc schematics and SPICE netlists), newest first. Only needed when you do not know the file name: when the user names a file, read it directly.
 
 <details><summary>Input schema</summary>
 
@@ -19,7 +19,7 @@ List the circuit files in the open project (.asc schematics and SPICE netlists),
 
 ## `read_schematic`
 
-Describe a schematic in circuit terms: every component with its value and the net on each pin, every net with its members, the directives, and electrical rule check results. Read a circuit before editing it. Pin names shown here (A, B, +, -, C, B, E, D, G, S, In+, ...) are the ones edit_schematic expects.
+Describe a schematic in circuit terms: every component with its value, its attributes in brackets and the net on each pin, every net with its members, the directives, and electrical rule check results. Read a circuit before editing it. The value column is what set_value changes; for an op-amp or other subcircuit it is the subcircuit's name (opamp), and parameters such as [SpiceLine2: GBW=10Meg] are changed with set_attr on that attribute. The pin names listed for each part are the ones edit_schematic expects.
 
 <details><summary>Input schema</summary>
 
@@ -42,7 +42,7 @@ Describe a schematic in circuit terms: every component with its value and the ne
 
 ## `edit_schematic`
 
-Change a schematic with circuit-level edits. Refer to parts by instance name (R1) and to pins as PART.PIN (R1.A, R1.2, Q1.B, V1.+, U1.In-). Never compute coordinates: `connect` routes wires itself and only ever joins the two nets you name (it falls back to net labels when no clean route exists), `connect_to_net` attaches a pin to a named net or to ground (`0`), and `add_component` without `at` finds free space near `near`. Typical sequence for a new part: add_component, then connect or connect_to_net for each pin. Two-terminal parts are vertical by default; orient R90 makes them horizontal. Directives (.tran, .ac, .op, .param, .meas, .step) go in with add_directive.
+Change a schematic with circuit-level edits. Refer to parts by instance name (R1) and to pins as PART.PIN with the pin names read_schematic lists (R1.A, R1.2, Q1.B, V1.+, and U1.invin, U1.noninvin, U1.out for the built-in op-amp). Never compute coordinates: `connect` routes wires itself and only ever joins the two nets you name (it falls back to net labels when no clean route exists), `connect_to_net` attaches a pin to a named net or to ground (`0`), and `add_component` without `at` finds free space near `near`. Typical sequence for a new part: add_component, then connect or connect_to_net for each pin. Two-terminal parts are vertical by default; orient R90 makes them horizontal. Directives (.tran, .ac, .op, .param, .meas, .step) go in with add_directive.
 The edit is saved immediately (the user can undo it) and LTspice reloads if it is open. The result lists what changed, a semantic diff, and any electrical rule problems the edit introduced; fix those before simulating.
 
 <details><summary>Input schema</summary>
@@ -55,9 +55,9 @@ The edit is saved immediately (the user can undo it) and LTspice reloads if it i
       "type": "string"
     },
     "edits": {
-      "description": "Edits, applied in order and atomically: if one fails, none are kept.",
+      "description": "Edits, applied in order and atomically: if one fails, none are kept.\nErrors name the edit by its position in this list, counting from 0.",
       "items": {
-        "description": "One edit. Required fields per op: add_component(symbol; optional name, value, orient, near, at, attrs) | remove(name) | replace_symbol(name, symbol) | move(name, to=[x,y]) | rotate(name; optional orient) | set_value(name, value) | set_attr(name, key, value) | rename(name, new_name) | connect(from=PIN, to=PIN) | connect_to_net(pin, net) | disconnect(pin) | add_wire(from=[x,y], to=[x,y]) | remove_wire(from=[x,y], to=[x,y]) | add_label(at, label) | remove_label(label; optional at) | add_directive(text; optional at) | remove_directive(matching) | replace_directive(matching, text) | add_comment(text; optional at). PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-.",
+        "description": "One edit. Fields per op: add_component {symbol; optional name, value, orient, near, at: [x, y], attrs} | remove {name} | replace_symbol {name, symbol} | move {name, to: [x, y]} | rotate {name; optional orient} | set_value {name, value} | set_attr {name, key, value} | rename {name, new_name} | connect {from: PIN, to: PIN} | connect_to_net {pin, net} | disconnect {pin} | add_wire {from: [x, y], to: [x, y]} | remove_wire {from: [x, y], to: [x, y]} | add_label {at: [x, y], label} | remove_label {label; optional at: [x, y]} | add_directive {text; optional at: [x, y]} | remove_directive {matching} | replace_directive {matching, text} | add_comment {text; optional at: [x, y]}. PIN is PART.PIN with a pin name read_schematic lists, such as R1.A, R1.2, Q1.B, V1.+, or U1.invin, U1.noninvin, U1.out for the built-in op-amp. Also accepted: connect_to_net `to` for `net`, connect_to_net `net_name` for `net`, connect_to_net `from` for `pin`, connect `pin` for `from`, set_attr `attr` for `key`, set_attr `attribute` for `key`, move `at` for `to`, rename `to` for `new_name`, add_label `net` for `label`, remove_label `net` for `label`, add_directive `directive` for `text`, replace_directive `directive` for `text`, remove_directive `text` for `matching`; `component` or `part` for `name`; set_attribute for set_attr.",
         "properties": {
           "at": {
             "description": "add_component, add_label, remove_label, add_directive, add_comment: a sheet position [x, y]. Leave out for automatic placement.",
@@ -92,7 +92,7 @@ The edit is saved immediately (the user can undo it) and LTspice reloads if it i
             "description": "connect: a pin such as R1.B. add_wire, remove_wire: a point [x, y]."
           },
           "key": {
-            "description": "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix).",
+            "description": "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix). `attr` is accepted in its place.",
             "type": "string"
           },
           "label": {
@@ -112,7 +112,7 @@ The edit is saved immediately (the user can undo it) and LTspice reloads if it i
             "type": "string"
           },
           "net": {
-            "description": "connect_to_net: the net name; 0 or gnd for ground.",
+            "description": "connect_to_net: the net name as read_schematic shows it; 0 or gnd for ground. A name, never a pin reference such as U1.out: to wire two pins use connect. `to` is accepted in its place.",
             "type": "string"
           },
           "new_name": {
@@ -227,10 +227,9 @@ Create a new LTspice schematic in the project. Give a SPICE netlist to have it d
       "type": "string"
     },
     "edits": {
-      "default": [],
       "description": "Edits to apply after the netlist is drawn, or to build the circuit\nfrom an empty sheet (same operations as edit_schematic).",
       "items": {
-        "description": "One edit. Required fields per op: add_component(symbol; optional name, value, orient, near, at, attrs) | remove(name) | replace_symbol(name, symbol) | move(name, to=[x,y]) | rotate(name; optional orient) | set_value(name, value) | set_attr(name, key, value) | rename(name, new_name) | connect(from=PIN, to=PIN) | connect_to_net(pin, net) | disconnect(pin) | add_wire(from=[x,y], to=[x,y]) | remove_wire(from=[x,y], to=[x,y]) | add_label(at, label) | remove_label(label; optional at) | add_directive(text; optional at) | remove_directive(matching) | replace_directive(matching, text) | add_comment(text; optional at). PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-.",
+        "description": "One edit. Fields per op: add_component {symbol; optional name, value, orient, near, at: [x, y], attrs} | remove {name} | replace_symbol {name, symbol} | move {name, to: [x, y]} | rotate {name; optional orient} | set_value {name, value} | set_attr {name, key, value} | rename {name, new_name} | connect {from: PIN, to: PIN} | connect_to_net {pin, net} | disconnect {pin} | add_wire {from: [x, y], to: [x, y]} | remove_wire {from: [x, y], to: [x, y]} | add_label {at: [x, y], label} | remove_label {label; optional at: [x, y]} | add_directive {text; optional at: [x, y]} | remove_directive {matching} | replace_directive {matching, text} | add_comment {text; optional at: [x, y]}. PIN is PART.PIN with a pin name read_schematic lists, such as R1.A, R1.2, Q1.B, V1.+, or U1.invin, U1.noninvin, U1.out for the built-in op-amp. Also accepted: connect_to_net `to` for `net`, connect_to_net `net_name` for `net`, connect_to_net `from` for `pin`, connect `pin` for `from`, set_attr `attr` for `key`, set_attr `attribute` for `key`, move `at` for `to`, rename `to` for `new_name`, add_label `net` for `label`, remove_label `net` for `label`, add_directive `directive` for `text`, replace_directive `directive` for `text`, remove_directive `text` for `matching`; `component` or `part` for `name`; set_attribute for set_attr.",
         "properties": {
           "at": {
             "description": "add_component, add_label, remove_label, add_directive, add_comment: a sheet position [x, y]. Leave out for automatic placement.",
@@ -265,7 +264,7 @@ Create a new LTspice schematic in the project. Give a SPICE netlist to have it d
             "description": "connect: a pin such as R1.B. add_wire, remove_wire: a point [x, y]."
           },
           "key": {
-            "description": "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix).",
+            "description": "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix). `attr` is accepted in its place.",
             "type": "string"
           },
           "label": {
@@ -285,7 +284,7 @@ Create a new LTspice schematic in the project. Give a SPICE netlist to have it d
             "type": "string"
           },
           "net": {
-            "description": "connect_to_net: the net name; 0 or gnd for ground.",
+            "description": "connect_to_net: the net name as read_schematic shows it; 0 or gnd for ground. A name, never a pin reference such as U1.out: to wire two pins use connect. `to` is accepted in its place.",
             "type": "string"
           },
           "new_name": {
@@ -550,7 +549,7 @@ List the simulators installed on this machine (ngspice, LTspice, Xyce, Spectre) 
 
 ## `simulate`
 
-Simulate a circuit and report what came back: analyses, vector names, operating point, the simulator's own .meas results, warnings and errors, plus any measurements you ask for. Fix lint errors first. Use the run id with measure, plot and read_waveform. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
+Simulate a circuit and report what came back: analyses, vector names, operating point, the simulator's own .meas results, warnings and errors, plus any measurements you ask for. Fix lint errors first. Use the run id with measure, plot and read_waveform. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db), peaking_db(expr), q_lowpass(expr). bandwidth_3db is the first frequency where the gain falls 3 dB below the gain at the lowest swept frequency (with `peak`, 3 dB below the peak gain, and for a bandpass the width between the two edges); freq_at_db is where the gain crosses an absolute level in dB, so freq_at_db(V(out), -3) is the -3 dB corner only when the low-frequency gain is 0 dB. peaking_db is the peak gain minus the low-frequency gain (0 for a Butterworth lowpass); q_lowpass estimates the Q of a second-order lowpass from an AC run (0.707 for Butterworth, with its natural frequency as f0); poles_zeros gives Q exactly. Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
 
 <details><summary>Input schema</summary>
 
@@ -588,7 +587,7 @@ Simulate a circuit and report what came back: analyses, vector names, operating 
 
 ## `measure`
 
-Take measurements on a simulation result without re-running it. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
+Take measurements on a simulation result without re-running it. Without a run id it uses the circuit's latest run, and simulates the circuit again (with that run's analysis) when the circuit has changed since, so numbers always describe the circuit as it is; the answer says when that happened. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db), peaking_db(expr), q_lowpass(expr). bandwidth_3db is the first frequency where the gain falls 3 dB below the gain at the lowest swept frequency (with `peak`, 3 dB below the peak gain, and for a bandpass the width between the two edges); freq_at_db is where the gain crosses an absolute level in dB, so freq_at_db(V(out), -3) is the -3 dB corner only when the low-frequency gain is 0 dB. peaking_db is the peak gain minus the low-frequency gain (0 for a Butterworth lowpass); q_lowpass estimates the Q of a second-order lowpass from an AC run (0.707 for Butterworth, with its natural frequency as f0); poles_zeros gives Q exactly. Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
 
 <details><summary>Input schema</summary>
 
@@ -605,7 +604,7 @@ Take measurements on a simulation result without re-running it. Measurements are
       "type": "array"
     },
     "run": {
-      "description": "A run id from simulate. Default: the circuit's latest run, simulating\nfirst if there is none.",
+      "description": "A run id from simulate. Default: the circuit's latest run, simulating\nfirst if there is none, or again (with that run's analysis) if the\ncircuit has changed since.",
       "type": "string"
     }
   },
@@ -621,7 +620,7 @@ Take measurements on a simulation result without re-running it. Measurements are
 
 ## `check_specs`
 
-Simulate the circuit and check it against a spec table, reporting pass or fail and the margin for each spec. This is how to prove a design meets its requirements; run it after every change that matters. Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
+Simulate the circuit and check it against a spec table, reporting pass or fail and the margin for each spec. This is how to prove a design meets its requirements; run it after every change that matters. Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`, `q = q_lowpass(V(out)) = 0.707 +- 0.03`. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db), peaking_db(expr), q_lowpass(expr). bandwidth_3db is the first frequency where the gain falls 3 dB below the gain at the lowest swept frequency (with `peak`, 3 dB below the peak gain, and for a bandpass the width between the two edges); freq_at_db is where the gain crosses an absolute level in dB, so freq_at_db(V(out), -3) is the -3 dB corner only when the low-frequency gain is 0 dB. peaking_db is the peak gain minus the low-frequency gain (0 for a Butterworth lowpass); q_lowpass estimates the Q of a second-order lowpass from an AC run (0.707 for Butterworth, with its natural frequency as f0); poles_zeros gives Q exactly. Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
 
 <details><summary>Input schema</summary>
 
@@ -655,7 +654,7 @@ Simulate the circuit and check it against a spec table, reporting pass or fail a
 
 ## `plot`
 
-Plot waveforms from a simulation as an image: time-domain traces, or a Bode plot (magnitude in dB and phase) for AC data. Use it to look at behaviour; use measure for numbers.
+Plot waveforms from a simulation as an image: time-domain traces, or a Bode plot (magnitude in dB and phase) for AC data. Use it to look at behaviour; use measure for numbers. Without a run id it uses the circuit's latest run, simulating again first if the circuit has changed since.
 
 <details><summary>Input schema</summary>
 
@@ -700,7 +699,7 @@ Plot waveforms from a simulation as an image: time-domain traces, or a Bode plot
 
 ## `read_waveform`
 
-Read sampled values of signals from a simulation as a table (evenly spaced over a range). For AC data values are magnitude in dB and phase in degrees.
+Read sampled values of signals from a simulation as a table (evenly spaced over a range). For AC data values are magnitude in dB and phase in degrees. Without a run id it uses the circuit's latest run, simulating again first if the circuit has changed since.
 
 <details><summary>Input schema</summary>
 
@@ -862,7 +861,7 @@ Check bias: the DC operating point with each semiconductor device's small-signal
 
 ## `sweep`
 
-Sweep component values or .param values (several parameters give every combination, at most 200 runs) and tabulate measurements for each. Works with every simulator. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
+Sweep component values or .param values (several parameters give every combination, at most 200 runs) and tabulate measurements for each. Works with every simulator. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db), peaking_db(expr), q_lowpass(expr). bandwidth_3db is the first frequency where the gain falls 3 dB below the gain at the lowest swept frequency (with `peak`, 3 dB below the peak gain, and for a bandpass the width between the two edges); freq_at_db is where the gain crosses an absolute level in dB, so freq_at_db(V(out), -3) is the -3 dB corner only when the low-frequency gain is 0 dB. peaking_db is the peak gain minus the low-frequency gain (0 for a Butterworth lowpass); q_lowpass estimates the Q of a second-order lowpass from an AC run (0.707 for Butterworth, with its natural frequency as f0); poles_zeros gives Q exactly. Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().
 
 <details><summary>Input schema</summary>
 
@@ -1017,7 +1016,7 @@ Sweep component values or .param values (several parameters give every combinati
 
 ## `monte_carlo`
 
-Monte Carlo tolerance analysis: vary component values within their tolerances, simulate each sample, and report the yield against the specs with per-spec spread and the worst run. Seeded and reproducible. Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`.
+Monte Carlo tolerance analysis: vary component values within their tolerances, simulate each sample, and report the yield against the specs with per-spec spread and the worst run. Seeded and reproducible. Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`, `q = q_lowpass(V(out)) = 0.707 +- 0.03`.
 
 <details><summary>Input schema</summary>
 
@@ -1096,7 +1095,7 @@ Monte Carlo tolerance analysis: vary component values within their tolerances, s
 
 ## `optimize`
 
-Size component values to meet a spec table with the simulator in the loop (Nelder-Mead or CMA-ES over log-scaled ranges), then round to standard E-series values and re-check. You choose the parameters and sensible ranges; the optimizer does the search. Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`.
+Size component values to meet a spec table with the simulator in the loop (Nelder-Mead or CMA-ES over log-scaled ranges), then round to standard E-series values and re-check. You choose the parameters and sensible ranges; the optimizer does the search. Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`, `q = q_lowpass(V(out)) = 0.707 +- 0.03`.
 
 <details><summary>Input schema</summary>
 
