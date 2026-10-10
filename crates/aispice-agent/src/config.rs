@@ -27,6 +27,11 @@ pub struct Config {
     pub simulator: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ltspice_path: Option<PathBuf>,
+    /// Simulate with aispice's embedded models and the project's own files
+    /// only, never with models or symbols from an installed LTspice library,
+    /// so results do not depend on the machine.
+    #[serde(skip_serializing_if = "is_false")]
+    pub embedded_models_only: bool,
     pub edit_mode: EditMode,
     pub agent: AgentSettings,
     /// Per-provider settings, keyed by provider id. A name that is not a
@@ -38,6 +43,10 @@ pub struct Config {
     pub spectre: Option<SpectreSettings>,
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -45,6 +54,7 @@ impl Default for Config {
             model: None,
             simulator: "auto".into(),
             ltspice_path: None,
+            embedded_models_only: false,
             edit_mode: EditMode::Apply,
             agent: AgentSettings::default(),
             providers: BTreeMap::new(),
@@ -292,6 +302,20 @@ remote_dir = "/scratch/me/aispice"
             config.thinking_config(),
             Some(ThinkingConfig::with_budget(4096))
         );
+    }
+
+    #[test]
+    fn embedded_models_only_is_read_and_off_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "embedded_models_only = true\n").unwrap();
+        assert!(Config::load_from(&path).unwrap().embedded_models_only);
+        let default = Config::default();
+        assert!(!default.embedded_models_only);
+        // Left out of a saved file while it is off.
+        default.save_to(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("embedded_models_only"), "{text}");
     }
 
     #[test]

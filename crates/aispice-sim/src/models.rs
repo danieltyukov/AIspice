@@ -501,6 +501,24 @@ mod tests {
         assert_eq!(s.params, "Aol=100K GBW=10Meg");
     }
 
+    /// The rule check in aispice-core treats these subcircuits as defined;
+    /// it must know exactly the ones this library supplies.
+    #[test]
+    fn lint_knows_every_embedded_subckt() {
+        let mut embedded: Vec<String> = embedded_models()
+            .into_iter()
+            .filter(|m| m.kind == "subckt")
+            .map(|m| m.name.to_ascii_lowercase())
+            .collect();
+        embedded.sort();
+        let mut known: Vec<String> = aispice_core::lint::BUILTIN_SUBCKTS
+            .iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
+        known.sort();
+        assert_eq!(embedded, known);
+    }
+
     #[test]
     fn embedded_fallback_without_ltspice() {
         let n = parse(

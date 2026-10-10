@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=Circuit design assistant
+Comment={{comment}}
+Exec={{exec}}
+Icon={{icon}}
+StartupWMClass=io.github.danieltyukov.aispice
+Categories=Development;Electronics;Engineering;
+Keywords=spice;ltspice;ngspice;circuit;simulation;schematic;
+Terminal=false
+StartupNotify=true

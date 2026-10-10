@@ -195,6 +195,54 @@ export function* script(host: AgentHost, prompt: string): Generator<Step> {
     return;
   }
 
+  if (lower.includes("optimi") || lower.includes("yield") || lower.includes("monte carlo")) {
+    yield { kind: "thinking", text: "Size the parts against the specs with the optimizer, then check the design holds with real tolerances." };
+    yield { kind: "text", text: "I'll size R1 and C1 against your specs, then run a Monte Carlo analysis with 1% resistors and 5% capacitors." };
+    yield readTool();
+    yield { kind: "step_end", input: 2480, output: 96 };
+    yield {
+      kind: "tool",
+      name: "optimize",
+      input: { circuit, params: [{ name: "R1", min: "100", max: "100k" }, { name: "C1", min: "1n", max: "1u" }], series: "E24" },
+      ms: 2600,
+      run: async () => ({
+        content: text("All specs pass after 23 simulations. R1 = 1k, C1 = 160n (E24)."),
+        data: { kind: "optimize", best: { R1: "1k", C1: "160n" }, evaluations: 23, report: sized(host.specs()) },
+        is_error: false,
+      }),
+    };
+    yield { kind: "step_end", input: 4210, output: 140 };
+    yield {
+      kind: "tool",
+      name: "monte_carlo",
+      input: { circuit, runs: 500, tolerances: [{ part: "R*", tol: "1%" }, { part: "C*", tol: "5%" }] },
+      ms: 3100,
+      run: async () => ({
+        content: text("Yield 97.6% over 500 runs."),
+        data: {
+          kind: "montecarlo",
+          runs: 500,
+          yield_pct: 97.6,
+          report: [
+            "yield     97.6%  (96.0% to 98.6%)",
+            "runs      500, R 1%, C 5%",
+            "fc        1.003 kHz, sd 26.1 Hz",
+            "          12 runs outside limits",
+            "gain_dc   -0.09 dB, all pass",
+          ].join("\n"),
+        },
+        is_error: false,
+      }),
+    };
+    yield { kind: "step_end", input: 5020, output: 120 };
+    yield {
+      kind: "text",
+      text: "R1 = 1k and C1 = 160n put the corner at **1.005 kHz**. With 1% resistors and 5% capacitors, **97.6%** of builds meet every spec; the misses are all on the corner, so a 2% capacitor would close the gap.",
+    };
+    yield { kind: "step_end", input: 5600, output: 160 };
+    return;
+  }
+
   yield { kind: "thinking", text: lines.thinking };
   yield { kind: "text", text: lines.intro };
   yield readTool();
@@ -288,6 +336,13 @@ export function* script(host: AgentHost, prompt: string): Generator<Step> {
   const verdict = report ? (report.all_pass ? "All specs pass." : report.summary + ".") : "";
   yield { kind: "text", text: [head, verdict, table, lines.done].filter(Boolean).join("\n\n") };
   yield { kind: "step_end", input: 6020, output: 236 };
+}
+
+/** The specs the optimizer sized for: the rows it was asked to meet, all passing. */
+function sized(report: SpecReport | null): SpecReport | null {
+  if (!report) return null;
+  const rows = report.rows.filter((r) => r.pass);
+  return { ...report, rows, all_pass: true, summary: `all ${rows.length} specs pass` };
 }
 
 function limitText(min: number | null, max: number | null, display: string): string {

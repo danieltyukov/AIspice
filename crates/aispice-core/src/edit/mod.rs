@@ -7,17 +7,20 @@
 //! never shorts two nets by accident. A batch of edits is atomic: if any edit
 //! fails, the schematic is left as it was.
 
+mod detach;
+mod parse;
 mod pins;
 mod place;
 mod route;
 
+pub use parse::{FIELD_ALIASES, OPS, parse_edits};
 pub use pins::{PinLoc, locate, split_pin_spec};
 
 use crate::geometry::{GRID, Orient, Point};
 use crate::netlist::{connect, connect::is_ground_label};
 use crate::schematic::{Flag, Item, Schematic, Text, TextKind, Wire};
 use crate::symbol::SymbolLibrary;
-use route::{Route, Router, pin_partition, unique_label};
+use route::{Route, Router, pin_partition};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -38,6 +41,25 @@ pub enum EditError {
     NameTaken(String),
     #[error("no directive or comment contains `{0}`")]
     NoSuchText(String),
+    #[error("no label `{label}`{where_}; the labels on the sheet are: {known}")]
+    NoSuchLabel {
+        label: String,
+        where_: String,
+        known: String,
+    },
+    #[error(
+        "`{net}` is a pin of {part}, not a net name. To wire two pins together use connect with from and to; to put a pin on the same net as {net}, use connect_to_net with that net's name{current}"
+    )]
+    PinAsNet {
+        net: String,
+        part: String,
+        /// `` (`out`)``, the net the pin is on, or nothing.
+        current: String,
+    },
+    /// The operation cannot do what it was asked without changing something
+    /// it was not asked to change.
+    #[error("{0}")]
+    Refused(String),
     #[error("no wire runs from {0} to {1}")]
     NoSuchWire(Point, Point),
     #[error("refused for safety: {0}")]
@@ -48,6 +70,12 @@ pub enum EditError {
         value: String,
         reason: &'static str,
     },
+    /// An edit whose fields do not fit its op, as serde reports it.
+    #[error("{0}")]
+    Schema(String),
+    /// An edit that is not even an object with an op.
+    #[error("edit {index}: {message}")]
+    Malformed { index: usize, message: String },
     #[error("edit {index} ({op}): {source}")]
     InBatch {
         index: usize,
@@ -64,7 +92,8 @@ fn pt(xy: Xy) -> Point {
 }
 
 /// One edit. Component and pin references use instance names (`R1`) and
-/// `COMPONENT.PIN` (`R1.A`, `R1.2`, `Q1.B`, `V1.+`, `U1.In-`).
+/// `COMPONENT.PIN` with the pin names the symbol defines (`R1.A`, `R1.2`,
+/// `Q1.B`, `V1.+`, `U1.invin` for the built-in op-amp).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum EditOp {
@@ -93,7 +122,7 @@ pub enum EditOp {
         #[serde(default)]
         attrs: BTreeMap<String, String>,
     },
-    /// Delete a component and any wire stubs left touching nothing.
+    /// Delete a component, with the wire stubs and labels only its pins used.
     Remove {
         name: String,
     },
@@ -136,12 +165,16 @@ pub enum EditOp {
         to: String,
     },
     /// Join a pin to a named net: a short stub with a label, or a ground
-    /// symbol for `0`/`gnd`. Reuses an existing net of that name.
+    /// symbol for `0`/`gnd`. Reuses an existing net of that name. The net is
+    /// a name, never a pin reference (use connect for pin to pin), and a pin
+    /// already on another named net with other pins is refused rather than
+    /// shorting the two nets.
     ConnectToNet {
         pin: String,
         net: String,
     },
-    /// Remove the wires that end on a pin and the labels sitting on it.
+    /// Take a pin off its net: its wires go, with the stubs and labels that
+    /// served only it. Other pins that shared the net stay on it.
     Disconnect {
         pin: String,
     },
@@ -293,6 +326,123 @@ fn attribute(key: &str, value: &str) -> Result<(), EditError> {
     Ok(())
 }
 
+/// A part that calls a subcircuit (an op-amp) takes the subcircuit's name as
+/// its value; parameters such as `GBW=1Meg` belong in SpiceLine or
+/// SpiceLine2. A value with `=` in it would replace the name, and the netlist
+/// would call a subcircuit named after the parameter. `sym` is the part as
+/// it would be after the edit, `old` its value before; `adding` words the
+/// advice for add_component.
+fn check_subckt_value(
+    sym: &crate::schematic::Symbol,
+    def: &crate::symbol::SymbolDef,
+    name: &str,
+    old: Option<&str>,
+    adding: bool,
+) -> Result<(), EditError> {
+    use crate::netlist::build::{effective_attr, subckt_call};
+    let Some(call) = subckt_call(sym, def) else {
+        return Ok(());
+    };
+    let Some(value) = effective_attr(sym, def, "Value") else {
+        return Ok(());
+    };
+    // Only when the value is what names the subcircuit (no model name in
+    // SpiceModel before it, no Value2 standing in for it).
+    if call.from != "Value" || !value.contains('=') {
+        return Ok(());
+    }
+    let lines: Vec<(&str, &str)> = ["SpiceLine", "SpiceLine2"]
+        .into_iter()
+        .filter_map(|k| effective_attr(sym, def, k).map(|v| (k, v)))
+        .collect();
+    let current = if lines.is_empty() {
+        "none".to_string()
+    } else {
+        lines
+            .iter()
+            .map(|(k, v)| format!("{k} `{v}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    // Suggest the line that already carries the parameter, with its new
+    // value; otherwise an empty line, or SpiceLine with it added.
+    let given: Vec<&str> = value
+        .split_whitespace()
+        .filter(|w| w.contains('='))
+        .collect();
+    let param_key = |w: &str| w.split('=').next().unwrap_or("").to_ascii_lowercase();
+    let first = given.first().map(|w| param_key(w)).unwrap_or_default();
+    let carrying = lines
+        .iter()
+        .find(|(_, v)| v.split_whitespace().any(|w| param_key(w) == first));
+    let (key, suggestion) = match carrying {
+        Some((k, v)) => {
+            let mut words: Vec<String> = v.split_whitespace().map(str::to_string).collect();
+            for g in &given {
+                match words.iter_mut().find(|w| param_key(w) == param_key(g)) {
+                    Some(w) => *w = g.to_string(),
+                    None => words.push(g.to_string()),
+                }
+            }
+            (*k, words.join(" "))
+        }
+        None => match ["SpiceLine", "SpiceLine2"]
+            .into_iter()
+            .find(|k| !lines.iter().any(|(l, _)| l == k))
+        {
+            Some(k) => (k, given.join(" ")),
+            None => ("SpiceLine", format!("{} {}", lines[0].1, given.join(" "))),
+        },
+    };
+    let subckt = old
+        .filter(|o| !o.contains('='))
+        .or_else(|| def.attr("Value").filter(|v| !v.contains('=')))
+        .unwrap_or("its subcircuit");
+    let how = if adding {
+        format!(
+            "Give parameters in attrs instead, for example \"attrs\": {{\"{key}\": \"{suggestion}\"}}"
+        )
+    } else {
+        format!(
+            "Change parameters with set_attr instead, for example {{\"op\": \"set_attr\", \"name\": \"{name}\", \"key\": \"{key}\", \"value\": \"{suggestion}\"}}"
+        )
+    };
+    let first_word = value.split_whitespace().next().unwrap_or(value);
+    let why = if first_word.contains('=') {
+        format!("the netlist would look for a subcircuit called `{first_word}`")
+    } else {
+        "the netlist would repeat those parameters next to the SpiceLine ones".to_string()
+    };
+    Err(EditError::Refused(format!(
+        "{name} calls the subcircuit `{subckt}`, and its value is that name only, not parameters such as `{value}` ({why}). {how}. Current parameters: {current}"
+    )))
+}
+
+/// Refuse setting `key` to `value` on part `name` when it would put
+/// parameters where a subcircuit name belongs. Unknown parts and symbols are
+/// left for the operation itself to report.
+fn guard_value(
+    sch: &Schematic,
+    lib: &SymbolLibrary,
+    name: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), EditError> {
+    if !key.eq_ignore_ascii_case("Value") {
+        return Ok(());
+    }
+    let Some(sym) = sch.symbol(name) else {
+        return Ok(());
+    };
+    let Ok((def, _)) = lib.resolve(&sym.name) else {
+        return Ok(());
+    };
+    let old = crate::netlist::build::effective_attr(sym, &def, "Value").map(str::to_string);
+    let mut after = sym.clone();
+    after.set_attr("Value", value.to_string());
+    check_subckt_value(&after, &def, name, old.as_deref(), false)
+}
+
 /// Directive text must pass the same allowlist the simulator gate applies.
 fn directive_text(text: &str) -> Result<(), EditError> {
     let decoded = text.replace("\\n", "\n");
@@ -425,6 +575,7 @@ fn apply_one(
             for (k, v) in attrs {
                 sym.set_attr(k, v.clone());
             }
+            check_subckt_value(&sym, &def, &name, None, true)?;
             sch.insert(Item::Symbol(sym));
             let conn = connect(sch, lib);
             let joined: Vec<String> = conn
@@ -451,19 +602,32 @@ fn apply_one(
             report.added.push(name);
         }
         EditOp::Remove { name } => {
-            let idx = sch
-                .symbol_index(name)
-                .ok_or_else(|| EditError::NoSuchComponent(name.clone(), pins::known_names(sch)))?;
+            if sch.symbol_index(name).is_none() {
+                return Err(EditError::NoSuchComponent(
+                    name.clone(),
+                    pins::known_names(sch),
+                ));
+            }
+            // Stubs and labels only this part's pins used go with it, so no
+            // stale label is left for a later edit to run into.
+            let (cleared, mut labels) = detach::clear_part(sch, lib, name);
+            let idx = sch.symbol_index(name).expect("checked above");
             sch.items.remove(idx);
-            let pruned = prune_dangling(sch, lib);
-            report.applied.push(format!(
-                "Removed {name}{}",
-                if pruned > 0 {
-                    format!(" and {pruned} loose wire(s)")
-                } else {
-                    String::new()
-                }
-            ));
+            let pruned = cleared + prune_dangling(sch, lib);
+            labels.sort_unstable();
+            labels.dedup();
+            let mut extra = Vec::new();
+            if pruned > 0 {
+                extra.push(format!("{pruned} loose wire(s)"));
+            }
+            if !labels.is_empty() {
+                extra.push(format!("its label(s) {}", labels.join(", ")));
+            }
+            report.applied.push(if extra.is_empty() {
+                format!("Removed {name}")
+            } else {
+                format!("Removed {name} and {}", extra.join(" and "))
+            });
             report.removed.push(name.clone());
         }
         EditOp::ReplaceSymbol { name, symbol } => {
@@ -512,6 +676,7 @@ fn apply_one(
                 .push(format!("Set {name} orientation to {o}"));
         }
         EditOp::SetValue { name, value } => {
+            guard_value(sch, lib, name, "Value", value)?;
             let known = pins::known_names(sch);
             let sym = sch
                 .symbol_mut(name)
@@ -536,6 +701,7 @@ fn apply_one(
                     return Err(EditError::NameTaken(value.clone()));
                 }
             }
+            guard_value(sch, lib, name, key, value)?;
             let known = pins::known_names(sch);
             let sym = sch
                 .symbol_mut(name)
@@ -575,23 +741,17 @@ fn apply_one(
                 Route::Labels { label, .. } => report.applied.push(format!(
                     "Joined {from} and {to} with net label `{label}` (no clean wire route)"
                 )),
+                Route::Failed => {
+                    return Err(EditError::Refused(format!(
+                        "could not join {from} and {to} with wires or labels without touching another net; move one of the parts to a clearer spot"
+                    )));
+                }
             }
         }
         EditOp::ConnectToNet { pin, net } => connect_to_net(sch, lib, pin, net, report)?,
         EditOp::Disconnect { pin } => {
-            let p = locate(sch, lib, pin)?;
-            let before = sch.items.len();
-            sch.items.retain(|i| match i {
-                Item::Wire(w) => w.a != p.at && w.b != p.at,
-                Item::Flag(f) => f.at != p.at,
-                _ => true,
-            });
-            let removed = before - sch.items.len();
-            let pruned = prune_dangling(sch, lib);
-            report.applied.push(format!(
-                "Disconnected {pin} ({} item(s) removed)",
-                removed + pruned
-            ));
+            let msg = detach::disconnect(sch, lib, pin)?;
+            report.applied.push(msg);
         }
         EditOp::AddWire { from, to } => {
             sch.insert(Item::Wire(Wire::new(pt(*from), pt(*to))));
@@ -627,9 +787,27 @@ fn apply_one(
             let before = sch.items.len();
             sch.items.retain(|i| !matches!(i, Item::Flag(f) if f.label.eq_ignore_ascii_case(label) && at.is_none_or(|xy| f.at == pt(xy))));
             let n = before - sch.items.len();
-            report
-                .applied
-                .push(format!("Removed {n} label(s) `{label}`"));
+            if n == 0 {
+                let mut known: Vec<String> = sch.flags().map(|f| f.label.clone()).collect();
+                known.sort_unstable();
+                known.dedup();
+                return Err(EditError::NoSuchLabel {
+                    label: label.clone(),
+                    where_: at.map(|xy| format!(" at {}", pt(xy))).unwrap_or_default(),
+                    known: if known.is_empty() {
+                        "none".into()
+                    } else {
+                        known.join(", ")
+                    },
+                });
+            }
+            // The stubs that led to those labels now end on nothing.
+            let pruned = prune_dangling(sch, lib);
+            report.applied.push(if pruned > 0 {
+                format!("Removed {n} label(s) `{label}` and {pruned} loose wire(s)")
+            } else {
+                format!("Removed {n} label(s) `{label}`")
+            });
         }
         EditOp::AddDirective { text, at } => {
             let text = text.trim().trim_start_matches('!').to_string();
@@ -696,8 +874,24 @@ fn connect_to_net(
     net: &str,
     report: &mut EditReport,
 ) -> Result<(), EditError> {
+    // `U2.out` as a net name is a pin reference, not a net: it would create
+    // a new net called u2.out instead of joining the pin's net.
+    if let Some((part, part_pin)) = split_pin_spec(net)
+        && sch.symbol(part).is_some()
+    {
+        let current = connect(sch, lib)
+            .net_of(part, part_pin)
+            .filter(|n| !n.name.starts_with("NC_"))
+            .map(|n| format!(" (`{}`)", n.name))
+            .unwrap_or_default();
+        return Err(EditError::PinAsNet {
+            net: net.to_string(),
+            part: part.to_string(),
+            current,
+        });
+    }
     let p = locate(sch, lib, pin)?;
-    let conn = connect(sch, lib);
+    let mut conn = connect(sch, lib);
     let ground = is_ground_label(net);
     let label = if ground {
         "0".to_string()
@@ -735,12 +929,72 @@ fn connect_to_net(
                 f.label = label.clone();
             }
         }
-        report.applied.push(format!(
-            "Named the net of {pin} `{label}` (was {})",
-            old.join(", ")
-        ));
+        let others: Vec<String> = current
+            .pins
+            .iter()
+            .filter(|q| {
+                !(q.inst.eq_ignore_ascii_case(&p.inst) && q.pin.eq_ignore_ascii_case(&p.pin))
+            })
+            .map(|q| format!("{}.{}", q.inst, q.pin))
+            .collect();
+        report.applied.push(if others.is_empty() {
+            format!("Named the net of {pin} `{label}` (was {})", old.join(", "))
+        } else {
+            format!(
+                "Named the net of {pin} `{label}` (was {}); also on that net: {}",
+                old.join(", "),
+                others.join(", ")
+            )
+        });
+        // Directives that measure or save the old name now point nowhere.
+        let stale: Vec<String> = sch
+            .directives()
+            .flat_map(|t| t.lines())
+            .filter(|l| {
+                l.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+                    .any(|w| old.iter().any(|o| o.eq_ignore_ascii_case(w)))
+            })
+            .collect();
+        if !stale.is_empty() {
+            report.warnings.push(format!(
+                "these directives still name the old net {}: {}; update them with replace_directive",
+                old.join(", "),
+                stale.join(" | ")
+            ));
+        }
         return Ok(());
     }
+    // The pin is on another named net. Attaching it would join that net to
+    // this one, which is a short unless the pin is that net's only member.
+    let mut moved_from: Option<String> = None;
+    if let Some(current) = conn.net_of(&p.inst, &p.pin).filter(|n| n.labelled).cloned() {
+        let others: Vec<String> = current
+            .pins
+            .iter()
+            .filter(|q| {
+                !(q.inst.eq_ignore_ascii_case(&p.inst) && q.pin.eq_ignore_ascii_case(&p.pin))
+            })
+            .map(|q| format!("{}.{}", q.inst, q.pin))
+            .collect();
+        if !others.is_empty() {
+            return Err(EditError::Refused(format!(
+                "{pin} is on net {} with {}; attaching it to {label} would join {} and {label} into one net. To move only {pin}, disconnect it first and then connect it to {label}; to join the two nets on purpose, connect a pin of each with connect",
+                current.name,
+                others.join(", "),
+                current.name
+            )));
+        }
+        // Its labels served only this pin: take them off before attaching.
+        detach::disconnect(sch, lib, pin)?;
+        conn = connect(sch, lib);
+        moved_from = Some(current.name);
+    }
+    let done = |report: &mut EditReport, msg: String| {
+        report.applied.push(match &moved_from {
+            Some(old) => format!("{msg} (moved off {old})"),
+            None => msg,
+        });
+    };
     // If the net exists with pins, try a wire to its nearest pin first.
     if let Some(target) = conn.net(&label).filter(|n| !n.pins.is_empty() && !ground) {
         let nearest = target
@@ -756,9 +1010,7 @@ fn connect_to_net(
         let before = sch.clone();
         match router.connect(sch, &p, &other, &label) {
             Route::Wires(w) if w.len() <= 3 => {
-                report
-                    .applied
-                    .push(format!("Wired {pin} to {spec} on net {label}"));
+                done(report, format!("Wired {pin} to {spec} on net {label}"));
                 return Ok(());
             }
             Route::AlreadyConnected => {
@@ -771,6 +1023,14 @@ fn connect_to_net(
     // Otherwise a stub and a label (or ground symbol), checked like any route.
     let before = pin_partition(&conn);
     let key = (p.inst.to_ascii_uppercase(), p.pin.to_ascii_uppercase());
+    // Allowed merges: this pin's net with whatever already carries the label
+    // (by a pin on it, or by the label alone when the net has no pins).
+    let mut joined = vec![key.clone(), route::label_key(&label)];
+    if let Some(n) = conn.net(&label)
+        && let Some(q) = n.pins.first()
+    {
+        joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
+    }
     for stub in [2, 3, 1, 0] {
         let end = p.at.offset(p.out.0 * GRID * stub, p.out.1 * GRID * stub);
         let mut trial = sch.clone();
@@ -787,26 +1047,23 @@ fn connect_to_net(
             n.name.eq_ignore_ascii_case(&label)
                 || n.labels.iter().any(|l| l.eq_ignore_ascii_case(&label))
         });
-        // Allowed merges: this pin's net with whatever already carries the label.
-        let mut joined = vec![key.clone()];
-        if let Some(n) = conn.net(&label)
-            && let Some(q) = n.pins.first()
-        {
-            joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
-        }
         if on_net && route::only_joins(&before, &after, &joined) {
             *sch = trial;
-            report.applied.push(if ground {
-                format!("Grounded {pin}")
-            } else {
-                format!("Connected {pin} to net {label}")
-            });
+            done(
+                report,
+                if ground {
+                    format!("Grounded {pin}")
+                } else {
+                    format!("Connected {pin} to net {label}")
+                },
+            );
             return Ok(());
         }
     }
-    let label_used = unique_label(&conn, &label);
-    report.warnings.push(format!("Could not attach {pin} to {label} without touching another net; nothing changed (a free label would be `{label_used}`)."));
-    Ok(())
+    Err(EditError::Refused(format!(
+        "could not attach {pin} to {label}: every stub and label tried would touch another net. Join it to a particular pin of {label} with connect, or move {} to a clearer spot",
+        p.inst
+    )))
 }
 
 /// Remove wires with an end that touches nothing at all, repeatedly, so a
@@ -883,9 +1140,22 @@ pub fn flat_edit_schema() -> serde_json::Value {
         s["description"] = serde_json::Value::String(desc.to_string());
         s
     };
+    let forms: Vec<String> = OPS
+        .iter()
+        .map(|(op, _, form)| format!("{op} {form}"))
+        .collect();
+    let aliases: Vec<String> = FIELD_ALIASES
+        .iter()
+        .map(|(op, alias, real)| format!("{op} `{alias}` for `{real}`"))
+        .collect();
+    let description = format!(
+        "One edit. Fields per op: {}. PIN is PART.PIN with a pin name read_schematic lists, such as R1.A, R1.2, Q1.B, V1.+, or U1.invin, U1.noninvin, U1.out for the built-in op-amp. Also accepted: {}; `component` or `part` for `name`; set_attribute for set_attr.",
+        forms.join(" | "),
+        aliases.join(", ")
+    );
     serde_json::json!({
         "type": "object",
-        "description": "One edit. Required fields per op: add_component(symbol; optional name, value, orient, near, at, attrs) | remove(name) | replace_symbol(name, symbol) | move(name, to=[x,y]) | rotate(name; optional orient) | set_value(name, value) | set_attr(name, key, value) | rename(name, new_name) | connect(from=PIN, to=PIN) | connect_to_net(pin, net) | disconnect(pin) | add_wire(from=[x,y], to=[x,y]) | remove_wire(from=[x,y], to=[x,y]) | add_label(at, label) | remove_label(label; optional at) | add_directive(text; optional at) | remove_directive(matching) | replace_directive(matching, text) | add_comment(text; optional at). PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-.",
+        "description": description,
         "properties": {
             "op": {"type": "string", "enum": ["add_component", "remove", "replace_symbol", "move", "rotate", "set_value", "set_attr", "rename", "connect", "connect_to_net", "disconnect", "add_wire", "remove_wire", "add_label", "remove_label", "add_directive", "remove_directive", "replace_directive", "add_comment"], "description": "The operation."},
             "symbol": field(serde_json::json!({"type": "string"}), "add_component, replace_symbol: symbol name such as res, cap, ind, voltage, current, diode, npn, pnp, nmos, pmos, OpAmps\\opamp, OpAmps\\opamp2, bv, e, g, sw, or a library part."),
@@ -895,12 +1165,12 @@ pub fn flat_edit_schema() -> serde_json::Value {
             "near": field(serde_json::json!({"type": "string"}), "add_component: place next to this component."),
             "at": field(xy.clone(), "add_component, add_label, remove_label, add_directive, add_comment: a sheet position [x, y]. Leave out for automatic placement."),
             "attrs": field(serde_json::json!({"type": "object", "additionalProperties": {"type": "string"}}), "add_component: extra attributes such as {\"SpiceLine\": \"AC 1\"}."),
-            "key": field(serde_json::json!({"type": "string"}), "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix)."),
+            "key": field(serde_json::json!({"type": "string"}), "set_attr: attribute name (Value, Value2, SpiceLine, SpiceLine2, SpiceModel, Prefix). `attr` is accepted in its place."),
             "new_name": field(serde_json::json!({"type": "string"}), "rename: the new instance name."),
             "from": field(pin_or_xy.clone(), "connect: a pin such as R1.B. add_wire, remove_wire: a point [x, y]."),
             "to": field(pin_or_xy, "connect: a pin such as C1.A. move: the new position [x, y]. add_wire, remove_wire: a point [x, y]."),
             "pin": field(serde_json::json!({"type": "string"}), "connect_to_net, disconnect: a pin such as V1.- or C1.B."),
-            "net": field(serde_json::json!({"type": "string"}), "connect_to_net: the net name; 0 or gnd for ground."),
+            "net": field(serde_json::json!({"type": "string"}), "connect_to_net: the net name as read_schematic shows it; 0 or gnd for ground. A name, never a pin reference such as U1.out: to wire two pins use connect. `to` is accepted in its place."),
             "label": field(serde_json::json!({"type": "string"}), "add_label, remove_label: the net label text."),
             "text": field(serde_json::json!({"type": "string"}), "add_directive, replace_directive, add_comment: the text, e.g. .tran 10m or .ac dec 20 10 100k."),
             "matching": field(serde_json::json!({"type": "string"}), "remove_directive, replace_directive: text that identifies the directive, e.g. .tran.")

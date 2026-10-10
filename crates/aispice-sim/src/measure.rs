@@ -406,12 +406,22 @@ pub enum Measure {
     GainMargin { expr: String },
     /// Highest gain in dB and the frequency where it occurs (AC).
     PeakGain { expr: String },
-    /// First frequency where the gain crosses `db` (AC).
+    /// First frequency where the gain crosses `db` (AC). The level is
+    /// absolute: unlike bandwidth_3db it is not measured from the
+    /// low-frequency gain.
     FreqAtDb {
         expr: String,
         #[serde(deserialize_with = "lenient::num")]
         db: f64,
     },
+    /// How far the gain rises above its low-frequency value, in dB (AC): 0
+    /// for a response with no peak, such as a Butterworth lowpass.
+    PeakingDb { expr: String },
+    /// Q of a second-order lowpass, estimated from an AC run: the gain,
+    /// relative to the low-frequency gain, where the phase has turned 90
+    /// degrees from its low-frequency value. Exact for a second-order
+    /// lowpass (0.707 for Butterworth); also reports that frequency as f0.
+    QLowpass { expr: String },
 }
 
 /// Accept numbers either as JSON numbers or as SPICE strings: agents send
@@ -698,6 +708,8 @@ impl Measure {
             Measure::GainMargin { .. } => "gain_margin",
             Measure::PeakGain { .. } => "peak_gain",
             Measure::FreqAtDb { .. } => "freq_at_db",
+            Measure::PeakingDb { .. } => "peaking_db",
+            Measure::QLowpass { .. } => "q_lowpass",
         }
     }
 
@@ -731,6 +743,8 @@ impl Measure {
             | Measure::PhaseMargin { expr }
             | Measure::GainMargin { expr }
             | Measure::PeakGain { expr }
+            | Measure::PeakingDb { expr }
+            | Measure::QLowpass { expr }
             | Measure::FreqAtDb { expr, .. } => vec![expr],
         }
     }
@@ -762,6 +776,8 @@ impl Measure {
             | Measure::PhaseMargin { .. }
             | Measure::GainMargin { .. }
             | Measure::PeakGain { .. }
+            | Measure::PeakingDb { .. }
+            | Measure::QLowpass { .. }
             | Measure::FreqAtDb { .. } => Domain::Ac,
         }
     }
@@ -770,9 +786,10 @@ impl Measure {
     /// matters for how spec margins are normalised.
     pub fn unit_hint(&self) -> Option<&'static str> {
         match self {
-            Measure::GainDbAt { .. } | Measure::PeakGain { .. } | Measure::GainMargin { .. } => {
-                Some("dB")
-            }
+            Measure::GainDbAt { .. }
+            | Measure::PeakGain { .. }
+            | Measure::PeakingDb { .. }
+            | Measure::GainMargin { .. } => Some("dB"),
             Measure::PhaseAt { .. } | Measure::PhaseMargin { .. } => Some("°"),
             Measure::OvershootPct { .. }
             | Measure::UndershootPct { .. }
@@ -1255,6 +1272,18 @@ fn step(m: &Measure, exprs: &[Expr], ds: &Dataset, range: Range<usize>, u: &Unit
                 Some(ex) => Outcome::of(ex.max).at(ex.max_at),
                 None => Outcome::none("no finite gain values"),
             }
+        }
+        Measure::PeakingDb { .. } => {
+            let s = tryo!(signal(e, ds, range, Mode::Db));
+            match (num::first_last_finite(&s.y), num::extremes(&s.x, &s.y)) {
+                (Some((low, _)), Some(ex)) => Outcome::of((ex.max - low).max(0.0)).at(ex.max_at),
+                _ => Outcome::none("no finite gain values"),
+            }
+        }
+        Measure::QLowpass { .. } => {
+            let db = tryo!(signal(e, ds, range.clone(), Mode::Db));
+            let ph = tryo!(signal(e, ds, range, Mode::Phase));
+            q_lowpass(&db, &ph)
         }
         Measure::FreqAtDb { db, .. } => {
             let s = tryo!(signal(e, ds, range, Mode::Db));
@@ -1762,6 +1791,33 @@ fn bandwidth(s: &Sig, reference: BwReference) -> Outcome {
     }
 }
 
+/// Q of a second-order lowpass: at f0 the phase has turned 90 degrees and
+/// the gain, relative to the low-frequency gain, is Q.
+fn q_lowpass(db: &Sig, ph: &Sig) -> Outcome {
+    let (Some((g0, _)), Some((p0, _))) =
+        (num::first_last_finite(&db.y), num::first_last_finite(&ph.y))
+    else {
+        return Outcome::none("no finite gain values");
+    };
+    // A lowpass starts at 0 degrees (or 180 when it inverts); the lowest
+    // swept frequency is already a little way down the slope, so take the
+    // nearest multiple of 180 as the starting phase.
+    let start = (p0 / 180.0).round() * 180.0;
+    let turned = num::crossings(&ph.x, &ph.y, start - 90.0, true)
+        .into_iter()
+        .find(|(_, e)| *e == num::Edge::Fall)
+        .map(|(f, _)| f);
+    let Some(f0) = turned else {
+        return Outcome::none(
+            "the phase never turns 90 degrees from its low-frequency value in the swept range, so this is not a second-order lowpass response there (or the sweep stops too early); use poles_zeros for Q",
+        );
+    };
+    match num::interp(&db.x, &db.y, f0, true) {
+        Some(g) => Outcome::of(10f64.powf((g - g0) / 20.0)).with("f0", f0, "Hz"),
+        None => Outcome::none("no gain value at the 90 degree point"),
+    }
+}
+
 fn unity_gain(s: &Sig) -> Result<f64, String> {
     let all = num::crossings(&s.x, &s.y, 0.0, true);
     if let Some((f, _)) = all.iter().find(|(_, e)| *e == num::Edge::Fall) {
@@ -2257,6 +2313,8 @@ pub const KINDS: &[&str] = &[
     "gain_margin",
     "peak_gain",
     "freq_at_db",
+    "peaking_db",
+    "q_lowpass",
 ];
 
 fn signature(kind: &str) -> Option<&'static [P]> {
@@ -2271,7 +2329,8 @@ fn signature(kind: &str) -> Option<&'static [P]> {
         "thd" => SIG_THD,
         "gain_db_at" | "phase_at" => SIG_FREQ,
         "bandwidth_3db" => SIG_BW,
-        "unity_gain_freq" | "phase_margin" | "gain_margin" | "peak_gain" => SIG_EXPR,
+        "unity_gain_freq" | "phase_margin" | "gain_margin" | "peak_gain" | "peaking_db"
+        | "q_lowpass" => SIG_EXPR,
         "freq_at_db" => SIG_DB,
         _ => return None,
     })
@@ -2967,6 +3026,52 @@ mod tests {
         assert!(none(&ds, "rise_time(V(out))").contains("no net transition"));
         let ts = val(&ds, "settling_time(V(out), 1)");
         assert!(ts > 2e-4 && ts < 6e-4, "{ts}");
+    }
+
+    /// Second-order lowpass 1 / (1 - (f/f0)^2 + j f/(f0 Q)).
+    fn lowpass2(f0: f64, q: f64) -> Dataset {
+        let f = logspace(10.0, 1e6, 301);
+        let h: Vec<Complex> = f
+            .iter()
+            .map(|&f| {
+                let u = f / f0;
+                Complex::new(1.0, 0.0) / Complex::new(1.0 - u * u, u / q)
+            })
+            .collect();
+        ac(f, vec![("V(out)", h)])
+    }
+
+    /// A Butterworth claim is a claim about Q; these two measure the shape
+    /// that bandwidth_3db alone does not pin down.
+    #[test]
+    fn second_order_shape() {
+        let butter = lowpass2(1e3, std::f64::consts::FRAC_1_SQRT_2);
+        rel(
+            val(&butter, "q_lowpass(V(out))"),
+            std::f64::consts::FRAC_1_SQRT_2,
+            2e-3,
+        );
+        assert!(val(&butter, "peaking_db(V(out))").abs() < 1e-6);
+        rel(val(&butter, "bandwidth_3db(V(out))"), 1e3, 3e-3);
+        let r = measure_dataset("q", &m("q_lowpass(V(out))"), &butter);
+        let f0 = r.extra.iter().find(|x| x.name == "f0").unwrap().value;
+        rel(f0, 1e3, 2e-3);
+        // Peaking: Q = 2 peaks at Q / sqrt(1 - 1/(4 Q^2)).
+        let peaky = lowpass2(1e3, 2.0);
+        rel(val(&peaky, "q_lowpass(V(out))"), 2.0, 5e-3);
+        rel(
+            val(&peaky, "peaking_db(V(out))"),
+            20.0 * (2.0 / (1.0f64 - 1.0 / 16.0).sqrt()).log10(),
+            1e-2,
+        );
+        // Two real poles (Q = 0.5): no peaking, Q still read off.
+        let slow = lowpass2(1e3, 0.5);
+        rel(val(&slow, "q_lowpass(V(out))"), 0.5, 5e-3);
+        // A first-order response never turns 90 degrees.
+        let f = logspace(10.0, 1e6, 61);
+        let h: Vec<Complex> = f.iter().map(|&f| poles(f, &[1e3], 1.0)).collect();
+        let first = ac(f, vec![("V(out)", h)]);
+        assert!(none(&first, "q_lowpass(V(out))").contains("90 degrees"));
     }
 
     #[test]

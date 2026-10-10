@@ -103,9 +103,10 @@ fn remove_prunes_loose_wires() {
         &ops(r#"[{"op": "remove", "name": "R1"}]"#),
     )
     .unwrap();
-    // Both wires led only to R1, so both go; the flag stays.
+    // Both wires and the ground flag at their end served only R1, so all
+    // three go.
     assert_eq!(sch.wires().count(), 0, "{report:?}");
-    assert_eq!(sch.flags().count(), 1);
+    assert_eq!(sch.flags().count(), 0);
 }
 
 #[test]
@@ -155,6 +156,28 @@ fn bad_pin_reports_valid_pins() {
         msg.contains("C (1)") && msg.contains("B (2)") && msg.contains("E (3)"),
         "{msg}"
     );
+}
+
+/// Models write op-amp pins as In- or In+; the built-in op-amp calls them
+/// invin and noninvin. The error lists the real names and points at the
+/// one meant.
+#[test]
+fn opamp_pin_aliases_point_at_the_real_pin() {
+    let src = "Version 4\nSHEET 1 880 680\nSYMBOL OpAmps/opamp 0 0 R0\nSYMATTR InstName U1\n";
+    let (mut sch, _) = parse(src);
+    for (asked, meant) in [("In-", "invin"), ("IN+", "noninvin"), ("vout", "out")] {
+        let err = apply(
+            &mut sch,
+            &lib(),
+            &ops(&format!(
+                r#"[{{"op": "connect_to_net", "pin": "U1.{asked}", "net": "x"}}]"#
+            )),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("invin (1), noninvin (2), out (3)"), "{err}");
+        assert!(err.contains(&format!("did you mean U1.{meant}?")), "{err}");
+    }
 }
 
 #[test]
@@ -288,6 +311,31 @@ fn naming_a_labelled_net_renames_instead_of_stacking() {
     );
 }
 
+/// Naming a net renames it for every pin on it; directives that still use
+/// the old name are pointed out, since they would silently measure nothing.
+#[test]
+fn renaming_a_net_points_out_directives_that_use_the_old_name() {
+    let src = "Version 4\nSHEET 1 880 680\nWIRE 16 96 16 128\nFLAG 16 128 n7\nFLAG 400 400 n7\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 384 304 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\nTEXT 0 500 Left 2 !.meas op v7 find V(n7)\n";
+    let (mut sch, _) = parse(src);
+    let report = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "R1.B", "net": "mid"}]"#),
+    )
+    .unwrap();
+    assert!(
+        report.applied[0].contains("also on that net: R2.B"),
+        "{report:?}"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("V(n7)") && w.contains("replace_directive")),
+        "{report:?}"
+    );
+}
+
 #[test]
 fn explicit_positions_snap_and_avoid_overlaps() {
     let mut sch = Schematic::new();
@@ -333,4 +381,206 @@ fn far_off_parts_do_not_overflow() {
         Point::new(i32::MIN + 1, 0),
         Point::new(i32::MAX, 0)
     ));
+}
+
+/// The gain-bandwidth eval's starting circuit: U1.out reaches the label
+/// `out` through a short stub, and Rf.B joins U1.out at the pin.
+const AMP: &str = "Version 4\nSHEET 1 880 680\nWIRE 128 80 128 48\nWIRE 128 160 128 192\nWIRE 192 128 160 128\nWIRE 160 128 160 80\nWIRE 160 80 128 80\nWIRE 256 112 288 112\nWIRE 288 96 256 96\nWIRE 256 96 256 112\nWIRE 368 96 400 96\nWIRE 192 96 144 96\nWIRE 208 176 208 144\nWIRE 208 256 208 288\nFLAG 128 48 in\nFLAG 128 192 0\nFLAG 288 112 out\nFLAG 400 96 fb\nFLAG 144 96 fb\nFLAG 208 144 fb\nFLAG 208 288 0\nSYMBOL voltage 128 64 R0\nSYMATTR InstName V1\nSYMATTR Value SINE(0 10m 1k)\nSYMATTR Value2 AC 1\nSYMBOL OpAmps/opamp 224 48 R0\nSYMATTR InstName U1\nSYMATTR SpiceLine2 GBW=1Meg\nSYMBOL res 384 80 R90\nSYMATTR InstName Rf\nSYMATTR Value 19k\nSYMBOL res 192 160 R0\nSYMATTR InstName Rg\nSYMATTR Value 1k\nTEXT 96 336 Left 2 !.ac dec 50 10 10Meg\n";
+
+fn labels(sch: &Schematic, text: &str) -> usize {
+    sch.flags().filter(|f| f.label == text).count()
+}
+
+/// Disconnecting a pin takes the label at the end of its stub with it, so a
+/// following connect_to_net cannot land on the old label and short the old
+/// net to the new one. The other pin that shared the net keeps it.
+#[test]
+fn disconnect_takes_the_stub_label_and_keeps_the_rest_of_the_net() {
+    let (mut sch, _) = parse(AMP);
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "disconnect", "pin": "U1.out"}]"#),
+    )
+    .unwrap();
+    assert!(
+        net(&sch, "U1.out").starts_with("NC_"),
+        "{}",
+        net(&sch, "U1.out")
+    );
+    assert_eq!(net(&sch, "Rf.B"), "out", "Rf.B lost its net");
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "U1.out", "net": "mid"}]"#),
+    )
+    .unwrap();
+    assert_eq!(net(&sch, "U1.out"), "mid");
+    assert_eq!(net(&sch, "Rf.B"), "out");
+    let findings = lint(&sch, &lib()).findings;
+    assert!(
+        !findings.iter().any(|f| f.rule == "multiple-labels"),
+        "{findings:#?}"
+    );
+}
+
+/// A stub and label that served only the pin go entirely.
+#[test]
+fn disconnect_leaves_no_orphan_label() {
+    let src =
+        "Version 4\nSHEET 1 880 680\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\n";
+    let (mut sch, _) = parse(src);
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "R1.A", "net": "x"}, {"op": "disconnect", "pin": "R1.A"}]"#),
+    )
+    .unwrap();
+    assert_eq!(labels(&sch, "x"), 0);
+    assert_eq!(sch.wires().count(), 0);
+}
+
+/// Removing a part takes along the stubs and labels only its pins used, so
+/// a later edit cannot pick up a stale label of a part that is gone.
+#[test]
+fn remove_takes_the_labels_only_its_pins_used() {
+    let (mut sch, _) = parse(AMP);
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "remove", "name": "Rg"}]"#),
+    )
+    .unwrap();
+    // Rg.B's ground stub goes; Rg.A's fb label goes, the other two stay.
+    assert_eq!(labels(&sch, "0"), 1);
+    assert_eq!(labels(&sch, "fb"), 2);
+    assert_eq!(net(&sch, "U1.invin"), "fb");
+    assert_eq!(net(&sch, "Rf.A"), "fb");
+}
+
+/// Attaching a pin that already sits on another named net with other pins
+/// would short the two nets; the edit fails instead, naming the edit.
+#[test]
+fn connect_to_net_refuses_to_short_two_named_nets() {
+    let (mut sch, _) = parse(AMP);
+    let before = sch.clone();
+    let err = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "set_value", "name": "Rf", "value": "10k"}, {"op": "connect_to_net", "pin": "U1.invin", "net": "in"}]"#),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.starts_with("edit 1 (connect_to_net):"), "{err}");
+    assert!(err.contains("fb") && err.contains("disconnect"), "{err}");
+    assert_eq!(sch, before);
+}
+
+/// An operation that finds nothing to act on fails the batch.
+#[test]
+fn remove_label_that_does_not_exist_fails() {
+    let (mut sch, _) = parse(AMP);
+    let err = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "remove_label", "label": "vout"}]"#),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.starts_with("edit 0 (remove_label):"), "{err}");
+    assert!(
+        err.contains("out") && err.contains("fb"),
+        "lists the labels: {err}"
+    );
+}
+
+/// `net: "U1.out"` names a pin, not a net; it must not create net `u1.out`.
+#[test]
+fn connect_to_net_refuses_a_pin_as_the_net_name() {
+    let (mut sch, _) = parse(AMP);
+    let err = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "Rg.A", "net": "U1.out"}]"#),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.starts_with("edit 0 (connect_to_net):"), "{err}");
+    assert!(err.contains("connect") && err.contains("`out`"), "{err}");
+    // A dotted name that is not a part's pin is still a valid net name.
+    let (mut sch, _) = parse(AMP);
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "disconnect", "pin": "Rg.B"}, {"op": "connect_to_net", "pin": "Rg.B", "net": "v.ref"}]"#),
+    )
+    .unwrap();
+    assert_eq!(net(&sch, "Rg.B"), "v.ref");
+}
+
+/// Was a trap: set_value with `GBW=1Meg` on an op-amp replaced its
+/// subcircuit name, so the netlist called a subcircuit named `GBW=1Meg`.
+/// Parameters go in SpiceLine or SpiceLine2; the error says so and shows
+/// the current ones.
+#[test]
+fn subcircuit_value_refuses_parameters() {
+    let (mut sch, _) = parse(AMP);
+    let before = sch.clone();
+    for json in [
+        r#"[{"op": "set_value", "name": "U1", "value": "GBW=10Meg"}]"#,
+        r#"[{"op": "set_attr", "name": "U1", "key": "Value", "value": "opamp GBW=10Meg"}]"#,
+    ] {
+        let err = apply(&mut sch, &lib(), &ops(json)).unwrap_err().to_string();
+        assert!(err.contains("set_attr"), "{err}");
+        assert!(err.contains(r#""key": "SpiceLine2""#), "{err}");
+        assert!(err.contains(r#""value": "GBW=10Meg""#), "{err}");
+        assert!(
+            err.contains("SpiceLine `Aol=100K`") && err.contains("SpiceLine2 `GBW=1Meg`"),
+            "{err}"
+        );
+    }
+    assert_eq!(sch, before);
+    let err = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "add_component", "symbol": "OpAmps\\opamp", "name": "U2", "value": "GBW=1Meg"}]"#),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains(r#""SpiceLine2": "GBW=1Meg""#), "{err}");
+    // The right way works, and a plain subcircuit name is still a value.
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "set_attr", "name": "U1", "key": "SpiceLine2", "value": "GBW=10Meg"}, {"op": "set_value", "name": "U1", "value": "opamp"}]"#),
+    )
+    .unwrap();
+    // Values of other parts may contain `=`.
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "set_value", "name": "V1", "value": "PULSE(0 1 0 1n 1n 1m 2m) Rser=1"}]"#),
+    )
+    .unwrap();
+}
+
+/// A leftover label with no pins on it is still a net: a stub must not run
+/// into it and merge that name in.
+#[test]
+fn stubs_do_not_pick_up_stray_labels() {
+    // `stray` sits exactly where R1.A's usual two-grid stub would end.
+    let src = "Version 4\nSHEET 1 880 680\nFLAG 16 -16 stray\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\n";
+    let (mut sch, _) = parse(src);
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "R1.A", "net": "sig"}]"#),
+    )
+    .unwrap();
+    assert_eq!(net(&sch, "R1.A"), "sig");
+    let findings = lint(&sch, &lib()).findings;
+    assert!(
+        !findings.iter().any(|f| f.rule == "multiple-labels"),
+        "{findings:#?}"
+    );
 }
