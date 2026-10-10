@@ -1,0 +1,9 @@
+RC ascii stepped
+* Short stepped transient for LTspice's -ascii raw format.
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out {R}
+C1 out 0 1u
+.param R=1k
+.step param R list 1k 2k
+.tran 0 1m 0 50u
+.end

@@ -1,0 +1,23 @@
+* orientations.asc
+V1 in 0 5
+D1 in c0 D
+R1 c0 0 1k
+D2 in c1 D
+R2 c1 0 2k
+D3 in c2 D
+R3 c2 0 3k
+D4 in c3 D
+R4 c3 0 4k
+D5 in c4 D
+R5 c4 0 5k
+D6 in c5 D
+R6 c5 0 6k
+D7 in c6 D
+R7 c6 0 7k
+D8 in c7 D
+R8 c7 0 8k
+.model D D
+.lib C:\users\danieltyukov\Documents\LTspiceXVII\lib\cmp\standard.dio
+.op
+.backanno
+.end

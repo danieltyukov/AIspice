@@ -1,0 +1,22 @@
+
+*****
+***** Welcome to the Xyce(TM) Parallel Electronic Simulator
+*****
+***** This is version Xyce Release 7.10.0-opensource
+***** Date: Sat Oct 10 14:14:24 CEST 2026
+
+
+***** Executing netlist bad_subckt.cir
+
+***** Reading and parsing netlist...
+Netlist warning: No print specified
+Netlist error in file bad_subckt.cir at or near line 4
+ Subcircuit NOSUCHSUB has not been defined for instance X1
+Simulation aborted due to error.  There are 0 MSG_FATAL errors and 1 MSG_ERROR
+ errors
+*** Xyce Abort ***
+Simulation aborted due to error.  There are 0 MSG_FATAL errors and 1 MSG_ERROR
+ errors
+
+
+*** Xyce Abort ***

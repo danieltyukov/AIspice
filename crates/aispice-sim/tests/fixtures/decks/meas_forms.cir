@@ -1,0 +1,14 @@
+meas forms
+* Every .meas output form LTspice writes: FIND AT, WHEN, PARAM, AC values.
+V1 in 0 PULSE(0 1 0 1n 1n 1 2) AC 1
+R1 in out 1k
+C1 out 0 1u
+.tran 0 5m 0 50u
+.meas tran vend FIND V(out) AT 2m
+.meas tran tcross WHEN V(out)=0.5
+.meas tran vwhen FIND V(in) WHEN V(out)=0.5
+.meas tran vmax MAX V(out)
+.meas tran half PARAM vmax/2
+.meas tran vrms RMS V(out) FROM 1m TO 3m
+.meas tran vint INTEG I(C1)
+.end

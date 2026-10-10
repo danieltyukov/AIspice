@@ -1,0 +1,11 @@
+meas step fail
+* The crossing at 0.8 V happens before 5 ms only for the smaller R values,
+* so the measurement fails in the last step.
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out {R}
+C1 out 0 1u
+.param R=1k
+.step param R list 1k 2k 8k
+.tran 0 5m 0 100u
+.meas tran t80 WHEN V(out)=0.8
+.end

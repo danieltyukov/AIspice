@@ -1,0 +1,10 @@
+LTspice flavoured AC
+* High-pass through C1 into 1k with 50 + 10 ohm in series: corner at
+* 1/(2 pi 1060 1u) = 150.1 Hz.
+V1 in 0 AC 1 Rser=50
+C1 in out 1µ Rser=10 Rpar=10Meg
+R§load out 0 1k
+.ac dec 20 10 100k
+.meas ac fhp WHEN mag(V(out))=0.70710678
+.meas ac g10k FIND V(out) AT 10k
+.end

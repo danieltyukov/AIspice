@@ -1,0 +1,10 @@
+* rlc_tjunction.asc
+V1 N001 0 0 AC 1
+L1 P001 N001 1m
+C1 out P001 1µ
+R1 out 0 10
+R2 out 0 1Meg
+.ac lin 2001 4k 6k
+* f0 = 1/(2 pi sqrt(1m 1u)) = 5032.9 Hz
+.backanno
+.end

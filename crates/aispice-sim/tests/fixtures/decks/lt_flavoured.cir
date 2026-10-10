@@ -1,0 +1,23 @@
+LTspice flavoured transient
+* Constructs only LTspice accepts as written: parasitics on C, L and V,
+* resistor ratings, a section-sign name, the micro sign, a three-inductor K,
+* space-separated .meas qualifiers, a zero .tran step and LTspice options.
+V1 in 0 SINE(0 1 1k) AC 1 Rser=50
+R§load out 0 1k tol=1 pwr=0.25
+C1 in out 1µ Rser=10 Lser=1n Rpar=10Meg V=50 Irms=1
+L1 out 0 10m Rpar=100k
+V2 a 0 SINE(0 1 10k) Rser=10
+L2 a 0 1m
+L3 b 0 1m
+L4 c 0 1m
+K1 L2 L3 L4 0.9
+R2 b 0 50
+R3 c 0 50
+.tran 0 5m 0 5u
+.meas tran vmax MAX V(out) FROM 1m TO 5m
+.meas tran vend FIND V(out) AT 2m
+.meas tran bmax MAX V(b) FROM 1m TO 5m
+.meas tran half PARAM vmax/2
+.options plotwinsize=0 numdgt=7
+.backanno
+.end

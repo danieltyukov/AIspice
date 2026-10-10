@@ -1,0 +1,11 @@
+meas ac
+* Unstepped AC measurements: complex results print as (dB,degrees).
+V1 in 0 AC 1
+R1 in out 1k
+C1 out 0 100n
+.ac dec 10 10 100k
+.meas ac g1k FIND V(out) AT 1k
+.meas ac gdb FIND db(V(out)) AT 10k
+.meas ac fc WHEN mag(V(out))=0.70710678
+.meas ac fc2 PARAM fc*2
+.end

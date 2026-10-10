@@ -1,0 +1,7 @@
+RC transient
+* Step into R=1k, C=1u: tau = 1 ms, V(out) = 1 - exp(-t/tau).
+V1 in 0 PULSE(0 1 0 1n 1n 1 2)
+R1 in out 1k
+C1 out 0 1u
+.tran 50u 5m
+.end

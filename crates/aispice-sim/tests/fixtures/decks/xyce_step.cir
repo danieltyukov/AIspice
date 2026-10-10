@@ -1,0 +1,9 @@
+Xyce step
+* Xyce writes one raw block per .step value.
+.param R=1k
+V1 in 0 10
+R1 in out {R}
+R2 out 0 3k
+.step R list 1k 3k
+.dc V1 0 10 5
+.end

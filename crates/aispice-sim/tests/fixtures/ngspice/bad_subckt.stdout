@@ -1,0 +1,10 @@
+Error: unknown subckt: x1 in out nosuchsub
+    Simulation interrupted due to error!
+
+Note: No ".plot", ".print", or ".fourier" lines; no simulations run
+
+Note: No compatibility mode selected!
+
+
+Circuit: bad netlist
+

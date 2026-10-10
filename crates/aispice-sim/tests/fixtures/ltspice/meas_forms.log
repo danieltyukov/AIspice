@@ -1,0 +1,30 @@
+Circuit: meas forms
+
+.OP point found by inspection.
+
+vend: v(out)=0.864631 at 0.002
+tcross: v(out)=0.5 AT 0.000693954
+vwhen: v(in)=1 at 0.000693954
+vmax: MAX(v(out))=0.993269 FROM 0 TO 0.005
+half: vmax/2=0.496635
+vrms: RMS(v(out))=0.845484 FROM 0.001 TO 0.003
+vint: INTEG(i(c1))=9.94277e-007 FROM 0 TO 0.005
+
+
+Date: Sat Oct 10 14:28:56 2026
+Total elapsed time: 0.002 seconds.
+
+tnom = 27
+temp = 27
+method = modified trap
+totiter = 258
+traniter = 258
+tranpoints = 130
+accept = 129
+rejected = 1
+matrix size = 3
+fillins = 0
+solver = Normal
+Matrix Compiler1: 50 bytes object code size  0.1/0.1/[0.1]
+Matrix Compiler2: 175 bytes object code size  0.1/0.1/[0.1]
+

@@ -1,0 +1,8 @@
+op plus tran
+* LTspice writes the .op into op_tran.op.raw next to the transient raw.
+V1 in 0 1
+R1 in out 1k
+C1 out 0 1u
+.op
+.tran 0 1m 0 100u
+.end

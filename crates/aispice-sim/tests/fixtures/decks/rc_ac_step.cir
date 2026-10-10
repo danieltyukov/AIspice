@@ -1,0 +1,11 @@
+RC AC stepped
+* Corner 1/(2 pi R C) for R = 1k and 2k with C = 100n.
+V1 in 0 AC 1
+R1 in out {R}
+C1 out 0 100n
+.param R=1k
+.step param R list 1k 2k
+.ac dec 5 10 100k
+.meas ac g1k FIND V(out) AT 1k
+.meas ac fc WHEN mag(V(out))=0.70710678
+.end

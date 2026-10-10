@@ -1,0 +1,8 @@
+* rc_lowpass.asc
+V1 N001 0 SINE(0 1 1k) AC 1
+R1 out N001 1k
+C1 out 0 100n
+.ac dec 20 10 100k
+* RC low-pass: corner at 1/(2 pi 1k 100n) = 1591.5 Hz
+.backanno
+.end

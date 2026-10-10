@@ -1,0 +1,7 @@
+bad netlist
+* Calls a subcircuit nobody defines: every simulator must refuse it.
+V1 in 0 1
+X1 in out nosuchsub
+R1 out 0 1k
+.op
+.end
