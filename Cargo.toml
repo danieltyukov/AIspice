@@ -44,7 +44,7 @@ resvg = { version = "0.48", default-features = false, features = ["text", "syste
 similar = "3"
 keyring = "4"
 tempfile = "3"
-dirs = "6"
+dirs = "7"
 base64 = "0.23"
 rand = "0.9"
 tracing = "0.1"
