@@ -55,7 +55,7 @@ Running simulators and reading what they return.
 | `dialect` | Translates the LTspice-flavoured netlist for the simulator in use |
 | `raw`, `log`, `dataset` | Binary and ASCII raw files, logs and `.meas` results, as one dataset type |
 | `expr` | Expressions over vectors (`V(out)/V(in)`, `db()`, `ph()`) |
-| `measure` | Named measurements: values, extremes, rise and fall time, overshoot, settling, crossings, gain, bandwidth, unity-gain frequency, phase and gain margin |
+| `measure` | Named measurements: values, extremes, rise and fall time, overshoot, settling, crossings, gain, bandwidth, unity-gain frequency, phase and gain margin, peaking and the Q of a second-order lowpass |
 | `spec` | Spec tables: a measurement plus limits, evaluated to pass or fail with a margin |
 | `sweep`, `montecarlo`, `optimize` | Parameter sweeps, tolerance analysis with yield, and sizing parameters within bounds to meet specs |
 | `plot` | SVG plots of waveforms |
