@@ -40,6 +40,12 @@ pub enum EditError {
     NoSuchText(String),
     #[error("no wire runs from {0} to {1}")]
     NoSuchWire(Point, Point),
+    #[error("{field} `{value}` is not allowed: {reason}")]
+    BadField {
+        field: &'static str,
+        value: String,
+        reason: &'static str,
+    },
     #[error("edit {index} ({op}): {source}")]
     InBatch {
         index: usize,
@@ -216,12 +222,133 @@ pub fn apply(
     Ok(report)
 }
 
+/// Instance names, symbol names, attribute keys and net labels are single
+/// whitespace-free tokens in the file format. Anything else would split the
+/// line, and a line break would let an edit write arbitrary records (and from
+/// there, directives) into the schematic.
+fn token(field: &'static str, value: &str) -> Result<(), EditError> {
+    let bad = |reason| {
+        Err(EditError::BadField {
+            field,
+            value: value.chars().take(80).collect(),
+            reason,
+        })
+    };
+    if value.is_empty() {
+        return bad("it is empty");
+    }
+    if value.len() > 128 {
+        return bad("it is longer than 128 characters");
+    }
+    if value.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return bad("it must be one word without spaces or line breaks");
+    }
+    Ok(())
+}
+
+/// Values and attribute text may contain spaces (`SINE(0 1 1k)`) but never a
+/// line break or other control character.
+fn single_line(field: &'static str, value: &str) -> Result<(), EditError> {
+    let bad = |reason| {
+        Err(EditError::BadField {
+            field,
+            value: value.chars().take(80).collect(),
+            reason,
+        })
+    };
+    if value.chars().any(|c| c.is_control()) {
+        return bad("it must be a single line");
+    }
+    if value.len() > 4096 {
+        return bad("it is longer than 4096 characters");
+    }
+    Ok(())
+}
+
+/// Reject malformed fields before touching the schematic.
+fn validate(op: &EditOp) -> Result<(), EditError> {
+    match op {
+        EditOp::AddComponent {
+            symbol,
+            name,
+            value,
+            near,
+            attrs,
+            ..
+        } => {
+            token("symbol", symbol)?;
+            if let Some(n) = name {
+                token("name", n)?;
+            }
+            if let Some(v) = value {
+                single_line("value", v)?;
+            }
+            if let Some(n) = near {
+                token("near", n)?;
+            }
+            for (k, v) in attrs {
+                token("attribute name", k)?;
+                single_line("attribute value", v)?;
+            }
+        }
+        EditOp::ReplaceSymbol { name, symbol } => {
+            token("name", name)?;
+            token("symbol", symbol)?;
+        }
+        EditOp::SetValue { name, value } => {
+            token("name", name)?;
+            single_line("value", value)?;
+        }
+        EditOp::SetAttr { name, key, value } => {
+            token("name", name)?;
+            token("attribute name", key)?;
+            single_line("attribute value", value)?;
+        }
+        EditOp::Rename { name, new_name } => {
+            token("name", name)?;
+            token("new name", new_name)?;
+        }
+        EditOp::ConnectToNet { pin, net } => {
+            token("pin", pin)?;
+            token("net", net)?;
+        }
+        EditOp::AddLabel { label, .. } | EditOp::RemoveLabel { label, .. } => {
+            token("label", label)?
+        }
+        EditOp::Connect { from, to } => {
+            token("pin", from)?;
+            token("pin", to)?;
+        }
+        EditOp::Disconnect { pin } => token("pin", pin)?,
+        EditOp::Remove { name } | EditOp::Move { name, .. } | EditOp::Rotate { name, .. } => {
+            token("name", name)?
+        }
+        // Directive and comment text is escaped onto one line by `escape`;
+        // what a directive may do is decided by the netlist safety policy
+        // before anything is simulated.
+        EditOp::AddDirective { text, .. }
+        | EditOp::AddComment { text, .. }
+        | EditOp::ReplaceDirective { text, .. } => {
+            if text.len() > 16384 {
+                return Err(EditError::BadField {
+                    field: "text",
+                    value: text.chars().take(80).collect(),
+                    reason: "it is longer than 16384 characters",
+                });
+            }
+        }
+        EditOp::RemoveDirective { .. } | EditOp::AddWire { .. } | EditOp::RemoveWire { .. } => {}
+    }
+    Ok(())
+}
+
 fn apply_one(
     sch: &mut Schematic,
     lib: &SymbolLibrary,
     op: &EditOp,
     report: &mut EditReport,
 ) -> Result<(), EditError> {
+    validate(op)?;
     match op {
         EditOp::AddComponent {
             symbol,
@@ -522,10 +649,10 @@ fn connect_to_net(
                 .labels
                 .iter()
                 .any(|l| l.eq_ignore_ascii_case(&label)))
-        {
-            report.applied.push(format!("{pin} is already on {label}"));
-            return Ok(());
-        }
+    {
+        report.applied.push(format!("{pin} is already on {label}"));
+        return Ok(());
+    }
     // If the net exists with pins, try a wire to its nearest pin first.
     if let Some(target) = conn.net(&label).filter(|n| !n.pins.is_empty() && !ground) {
         let nearest = target
@@ -573,9 +700,10 @@ fn connect_to_net(
         // Allowed merges: this pin's net with whatever already carries the label.
         let mut joined = vec![key.clone()];
         if let Some(n) = conn.net(&label)
-            && let Some(q) = n.pins.first() {
-                joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
-            }
+            && let Some(q) = n.pins.first()
+        {
+            joined.push((q.inst.to_ascii_uppercase(), q.pin.to_ascii_uppercase()));
+        }
         if on_net && route::only_joins(&before, &after, &joined) {
             *sch = trial;
             report.applied.push(if ground {

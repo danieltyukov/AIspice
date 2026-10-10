@@ -204,13 +204,14 @@ pub fn diff(before: &Schematic, after: &Schematic, lib: &SymbolLibrary) -> Schem
     let (ma, mb) = (membership(before, lib), membership(after, lib));
     for (pin, (net_b, others_b)) in &mb {
         if let Some((net_a, others_a)) = ma.get(pin)
-            && (others_a != others_b || (net_a != net_b && (is_named(net_a) || is_named(net_b)))) {
-                d.rewired.push(Rewire {
-                    pin: pin.clone(),
-                    from_net: net_a.clone(),
-                    to_net: net_b.clone(),
-                });
-            }
+            && (others_a != others_b || (net_a != net_b && (is_named(net_a) || is_named(net_b))))
+        {
+            d.rewired.push(Rewire {
+                pin: pin.clone(),
+                from_net: net_a.clone(),
+                to_net: net_b.clone(),
+            });
+        }
     }
     let dirs = |s: &Schematic| -> Vec<String> {
         s.texts()

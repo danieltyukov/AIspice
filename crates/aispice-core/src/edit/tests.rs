@@ -175,3 +175,36 @@ fn auto_placed_parts_start_unconnected() {
     );
     assert!(net(&sch, "R2.B").starts_with("NC_"));
 }
+
+#[test]
+fn line_breaks_cannot_inject_records() {
+    let mut sch = Schematic::new();
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "add_component", "symbol": "res", "name": "R1", "value": "1k"}]"#),
+    )
+    .unwrap();
+    let before = sch.clone();
+    for bad in [
+        r#"[{"op": "set_value", "name": "R1", "value": "1k\nTEXT 0 0 Left 2 !.control"}]"#,
+        r#"[{"op": "set_attr", "name": "R1", "key": "SpiceLine", "value": "a\rb"}]"#,
+        r#"[{"op": "add_label", "at": [0, 0], "label": "out\nWIRE 0 0 1 1"}]"#,
+        r#"[{"op": "rename", "name": "R1", "new_name": "R 2"}]"#,
+        r#"[{"op": "add_component", "symbol": "res\nTEXT", "value": "1"}]"#,
+        r#"[{"op": "connect_to_net", "pin": "R1.A", "net": "a b"}]"#,
+    ] {
+        let err = apply(&mut sch, &lib(), &ops(bad)).unwrap_err();
+        assert!(err.to_string().contains("not allowed"), "{err}");
+        assert_eq!(sch, before);
+    }
+    // A multi-line directive stays one TEXT record.
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "add_directive", "text": ".param a=1\n.op"}]"#),
+    )
+    .unwrap();
+    let text = crate::schematic::write(&sch);
+    assert_eq!(text.matches("TEXT ").count(), 1, "{text}");
+}
