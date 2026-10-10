@@ -4,6 +4,7 @@ members = [
     "crates/aispice-core",
     "crates/aispice-sim",
     "crates/aispice-agent",
+    "crates/aispice-tools",
     "crates/aispice-cli",
     "app/src-tauri",
 ]
@@ -11,6 +12,7 @@ default-members = [
     "crates/aispice-core",
     "crates/aispice-sim",
     "crates/aispice-agent",
+    "crates/aispice-tools",
     "crates/aispice-cli",
 ]
 
@@ -27,6 +29,7 @@ homepage = "https://danieltyukov.github.io/aispice/"
 aispice-core = { path = "crates/aispice-core", version = "0.2.0" }
 aispice-sim = { path = "crates/aispice-sim", version = "0.2.0" }
 aispice-agent = { path = "crates/aispice-agent", version = "0.2.0" }
+aispice-tools = { path = "crates/aispice-tools", version = "0.2.0" }
 
 anyhow = "1"
 thiserror = "2"

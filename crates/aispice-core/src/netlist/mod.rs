@@ -10,5 +10,5 @@ pub mod spice;
 pub use build::{Built, build, instance_name};
 pub use compare::{Mismatch, compare};
 pub use connect::{Connectivity, Net, PinRef, connect};
-pub use policy::{Policy, Violation, check as check_policy};
+pub use policy::{Policy, Violation, check as check_policy, check_lexical};
 pub use spice::{Element, Line, Netlist, Subckt, parse, write};

@@ -1,6 +1,19 @@
 use super::*;
 use crate::encoding;
+use std::borrow::Cow;
 use std::fmt::Write as _;
+
+/// Every record is one line. Any line break inside a field, from whatever
+/// code built the item, is flattened to a space here so it can never start a
+/// new record in LTspice (which also breaks on a lone carriage return) or in
+/// aispice's own parser.
+fn one_line(s: &str) -> Cow<'_, str> {
+    if s.contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']) {
+        Cow::Owned(s.replace(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'], " "))
+    } else {
+        Cow::Borrowed(s)
+    }
+}
 
 /// Write the schematic as `.asc` text with its original line endings.
 pub fn write(sch: &Schematic) -> String {
@@ -40,32 +53,49 @@ fn write_item(out: &mut String, item: &Item) {
             let _ = writeln!(out, "WIRE {} {} {} {}", w.a.x, w.a.y, w.b.x, w.b.y);
         }
         Item::Flag(f) => {
-            let _ = writeln!(out, "FLAG {} {} {}", f.at.x, f.at.y, f.label);
+            let _ = writeln!(out, "FLAG {} {} {}", f.at.x, f.at.y, one_line(&f.label));
         }
         Item::IoPin(p) => {
-            let _ = writeln!(out, "IOPIN {} {} {}", p.at.x, p.at.y, p.direction);
+            let _ = writeln!(
+                out,
+                "IOPIN {} {} {}",
+                p.at.x,
+                p.at.y,
+                one_line(&p.direction)
+            );
         }
         Item::BusTap(b) => {
             let _ = writeln!(out, "BUSTAP {} {} {} {}", b.a.x, b.a.y, b.b.x, b.b.y);
         }
         Item::Symbol(s) => {
-            let _ = writeln!(out, "SYMBOL {} {} {} {}", s.name, s.at.x, s.at.y, s.orient);
+            let _ = writeln!(
+                out,
+                "SYMBOL {} {} {} {}",
+                one_line(&s.name),
+                s.at.x,
+                s.at.y,
+                s.orient
+            );
             for w in &s.windows {
                 let _ = writeln!(
                     out,
                     "WINDOW {} {} {} {} {}",
-                    w.index, w.at.x, w.at.y, w.align, w.size
+                    w.index,
+                    w.at.x,
+                    w.at.y,
+                    one_line(&w.align),
+                    w.size
                 );
             }
             for a in &s.attrs {
                 if a.value.is_empty() {
-                    let _ = writeln!(out, "SYMATTR {}", a.key);
+                    let _ = writeln!(out, "SYMATTR {}", one_line(&a.key));
                 } else {
-                    let _ = writeln!(out, "SYMATTR {} {}", a.key, a.value);
+                    let _ = writeln!(out, "SYMATTR {} {}", one_line(&a.key), one_line(&a.value));
                 }
             }
             for line in &s.extra {
-                let _ = writeln!(out, "{line}");
+                let _ = writeln!(out, "{}", one_line(line));
             }
         }
         Item::Text(t) => {
@@ -76,7 +106,12 @@ fn write_item(out: &mut String, item: &Item) {
             let _ = writeln!(
                 out,
                 "TEXT {} {} {} {} {}{}",
-                t.at.x, t.at.y, t.align, t.size, marker, t.content
+                t.at.x,
+                t.at.y,
+                one_line(&t.align),
+                t.size,
+                marker,
+                one_line(&t.content)
             );
         }
         Item::Shape(s) => {
@@ -86,10 +121,10 @@ fn write_item(out: &mut String, item: &Item) {
                 ShapeKind::Circle => "CIRCLE",
                 ShapeKind::Arc => "ARC",
             };
-            let _ = writeln!(out, "{keyword} {}", s.tokens.join(" "));
+            let _ = writeln!(out, "{keyword} {}", one_line(&s.tokens.join(" ")));
         }
         Item::Other { line } => {
-            let _ = writeln!(out, "{line}");
+            let _ = writeln!(out, "{}", one_line(line));
         }
     }
 }

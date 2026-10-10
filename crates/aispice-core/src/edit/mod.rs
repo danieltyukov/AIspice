@@ -40,6 +40,8 @@ pub enum EditError {
     NoSuchText(String),
     #[error("no wire runs from {0} to {1}")]
     NoSuchWire(Point, Point),
+    #[error("refused for safety: {0}")]
+    Unsafe(String),
     #[error("{field} `{value}` is not allowed: {reason}")]
     BadField {
         field: &'static str,
@@ -256,13 +258,48 @@ fn single_line(field: &'static str, value: &str) -> Result<(), EditError> {
             reason,
         })
     };
-    if value.chars().any(|c| c.is_control()) {
+    if value
+        .chars()
+        .any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}')
+    {
         return bad("it must be a single line");
     }
     if value.len() > 4096 {
         return bad("it is longer than 4096 characters");
     }
     Ok(())
+}
+
+/// Some attributes are more than text. InstName and Prefix become netlist
+/// tokens; SpiceModel and ModelFile become `.lib` lines, so they must be plain
+/// library names, never paths that reach out of the project.
+fn attribute(key: &str, value: &str) -> Result<(), EditError> {
+    token("attribute name", key)?;
+    single_line("attribute value", value)?;
+    let k = key.to_ascii_lowercase();
+    if value.is_empty() {
+        return Ok(());
+    }
+    if k == "instname" || k == "prefix" {
+        token("attribute value", value)?;
+    }
+    if k == "spicemodel" || k == "modelfile" {
+        token("attribute value", value)?;
+        let lexical = crate::netlist::check_lexical(&format!(".lib {value}"));
+        if let Some(v) = lexical.first() {
+            return Err(EditError::Unsafe(v.reason.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// Directive text must pass the same allowlist the simulator gate applies.
+fn directive_text(text: &str) -> Result<(), EditError> {
+    let decoded = text.replace("\\n", "\n");
+    match crate::netlist::check_lexical(&decoded).into_iter().next() {
+        Some(v) => Err(EditError::Unsafe(v.reason)),
+        None => Ok(()),
+    }
 }
 
 /// Reject malformed fields before touching the schematic.
@@ -287,8 +324,7 @@ fn validate(op: &EditOp) -> Result<(), EditError> {
                 token("near", n)?;
             }
             for (k, v) in attrs {
-                token("attribute name", k)?;
-                single_line("attribute value", v)?;
+                attribute(k, v)?;
             }
         }
         EditOp::ReplaceSymbol { name, symbol } => {
@@ -301,8 +337,7 @@ fn validate(op: &EditOp) -> Result<(), EditError> {
         }
         EditOp::SetAttr { name, key, value } => {
             token("name", name)?;
-            token("attribute name", key)?;
-            single_line("attribute value", value)?;
+            attribute(key, value)?;
         }
         EditOp::Rename { name, new_name } => {
             token("name", name)?;
@@ -323,9 +358,9 @@ fn validate(op: &EditOp) -> Result<(), EditError> {
         EditOp::Remove { name } | EditOp::Move { name, .. } | EditOp::Rotate { name, .. } => {
             token("name", name)?
         }
-        // Directive and comment text is escaped onto one line by `escape`;
-        // what a directive may do is decided by the netlist safety policy
-        // before anything is simulated.
+        // Text is escaped onto one TEXT record by `escape`. Directives must
+        // also pass the allowlist the simulator gate uses; the full check with
+        // the project's folders runs again before every simulation.
         EditOp::AddDirective { text, .. }
         | EditOp::AddComment { text, .. }
         | EditOp::ReplaceDirective { text, .. } => {
@@ -335,6 +370,9 @@ fn validate(op: &EditOp) -> Result<(), EditError> {
                     value: text.chars().take(80).collect(),
                     reason: "it is longer than 16384 characters",
                 });
+            }
+            if !matches!(op, EditOp::AddComment { .. }) {
+                directive_text(text)?;
             }
         }
         EditOp::RemoveDirective { .. } | EditOp::AddWire { .. } | EditOp::RemoveWire { .. } => {}
@@ -480,6 +518,18 @@ fn apply_one(
             ));
         }
         EditOp::SetAttr { name, key, value } => {
+            if key.eq_ignore_ascii_case("InstName") {
+                if value.is_empty() {
+                    return Err(EditError::BadField {
+                        field: "InstName",
+                        value: String::new(),
+                        reason: "every component needs a name",
+                    });
+                }
+                if !value.eq_ignore_ascii_case(name) && sch.symbol(value).is_some() {
+                    return Err(EditError::NameTaken(value.clone()));
+                }
+            }
             let known = pins::known_names(sch);
             let sym = sch
                 .symbol_mut(name)
@@ -625,6 +675,11 @@ fn apply_one(
 fn escape(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace("\r\n", "\n")
+        .replace(['\r', '\u{85}', '\u{2028}', '\u{2029}'], "\n")
+        .replace('\t', " ")
+        .chars()
+        .filter(|c| *c == '\n' || !c.is_control())
+        .collect::<String>()
         .replace('\n', "\\n")
 }
 

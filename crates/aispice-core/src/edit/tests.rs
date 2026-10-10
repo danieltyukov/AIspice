@@ -208,3 +208,40 @@ fn line_breaks_cannot_inject_records() {
     let text = crate::schematic::write(&sch);
     assert_eq!(text.matches("TEXT ").count(), 1, "{text}");
 }
+
+#[test]
+fn unsafe_attributes_and_directives_are_refused() {
+    let mut sch = Schematic::new();
+    apply(&mut sch, &lib(), &ops(r#"[{"op": "add_component", "symbol": "res", "name": "R1", "value": "1k"}, {"op": "add_component", "symbol": "res", "name": "R2", "value": "1k"}]"#)).unwrap();
+    let before = sch.clone();
+    for bad in [
+        r#"[{"op": "set_attr", "name": "R1", "key": "InstName", "value": "R1 x"}]"#,
+        r#"[{"op": "set_attr", "name": "R1", "key": "InstName", "value": "R2"}]"#,
+        r#"[{"op": "set_attr", "name": "R1", "key": "InstName", "value": ""}]"#,
+        r#"[{"op": "set_attr", "name": "R1", "key": "SpiceModel", "value": "/etc/passwd"}]"#,
+        r#"[{"op": "set_attr", "name": "R1", "key": "SpiceModel", "value": "../../x.lib"}]"#,
+        r#"[{"op": "set_value", "name": "R1", "value": "1k\u2028TEXT"}]"#,
+        r#"[{"op": "add_directive", "text": ".control\nshell id\n.endc"}]"#,
+        r#"[{"op": "add_directive", "text": ".ferret http://example.com/m.lib"}]"#,
+        r#"[{"op": "add_directive", "text": ".include /etc/passwd"}]"#,
+        r#"[{"op": "replace_directive", "matching": "x", "text": ".lib ../../secret"}]"#,
+    ] {
+        assert!(apply(&mut sch, &lib(), &ops(bad)).is_err(), "{bad}");
+        assert_eq!(sch, before);
+    }
+}
+
+#[test]
+fn writer_never_emits_a_record_break_inside_a_field() {
+    let mut sch = Schematic::new();
+    // Built directly, bypassing edit validation, as other code might.
+    let mut s = crate::schematic::Symbol::new("res", Point::new(0, 0), Orient::R0);
+    s.set_attr("InstName", "R1");
+    s.set_attr("Value", "1k\r.control\u{2028}x");
+    sch.items.push(Item::Symbol(s));
+    sch.items
+        .push(Item::Text(Text::comment(Point::new(0, 0), "a\rb\nc")));
+    let text = crate::schematic::write(&sch);
+    let records = text.split(['\n', '\r']).filter(|l| !l.is_empty()).count();
+    assert_eq!(records, 2 + 3 + 1, "{text:?}");
+}
