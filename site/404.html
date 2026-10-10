@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Not found · aispice</title>
+    <meta name="description" content="This page does not exist on the aispice site." />
+    <meta name="robots" content="noindex" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8f7f4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="../app/public/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="../app/public/apple-touch-icon.png" />
+    <script>
+      try {
+        var t = localStorage.getItem('aispice-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {
+        // Private mode, or storage disabled. The page is correct without it.
+      }
+    </script>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="head">
+      <div class="wrap head-inner">
+        <a class="brand" href="/aispice/">
+          <svg class="mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false">
+            <rect width="32" height="32" rx="7.5" fill="#0d7a68" />
+            <path
+              d="M6 21H10.2C12.4 21 12.6 7.8 15.2 7.8C17.6 7.8 17.5 13.6 19.8 13.6C21.7 13.6 21.8 10.1 23.5 10.1C24.9 10.1 25.3 11 26.5 11"
+              fill="none"
+              stroke="#fff"
+              stroke-width="2.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle cx="6" cy="21" r="2.25" fill="#fff" />
+          </svg>
+          <span class="wordmark">aispice</span>
+        </a>
+
+        <nav class="links" aria-label="Project">
+          <a href="https://github.com/danieltyukov/aispice">GitHub</a>
+          <a href="https://github.com/danieltyukov/aispice/tree/master/docs">Docs</a>
+          <a href="https://github.com/danieltyukov/aispice/releases">Releases</a>
+        </nav>
+
+        <button type="button" id="theme" class="toggle" aria-pressed="false">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
+            <path d="M8 2 A6 6 0 0 0 8 14 Z" fill="currentColor" />
+          </svg>
+          <span class="toggle-label">Dark mode</span>
+        </button>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap lost">
+        <h1 class="lede">There is no page at this address.</h1>
+        <p>
+          The link may be old, or the address mistyped. The
+          <a href="/aispice/">aispice home page</a> has the downloads and the documentation links,
+          and the source is on <a href="https://github.com/danieltyukov/aispice">GitHub</a>.
+        </p>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap">
+        <p>
+          <a href="https://github.com/danieltyukov/aispice">github.com/danieltyukov/aispice</a>
+          &middot;
+          <a href="https://github.com/danieltyukov/aispice/blob/master/LICENSE">MIT</a>
+        </p>
+        <p class="fine">This page makes no third-party requests and sets no cookie.</p>
+      </div>
+    </footer>
+
+    <script type="module" src="./theme.js"></script>
+  </body>
+</html>

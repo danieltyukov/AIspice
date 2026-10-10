@@ -1,0 +1,17 @@
+{
+  "name": "aispice-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "app",
+    "site"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w app",
+    "build": "npm run build -w app",
+    "test": "npm test -w app",
+    "site:dev": "npm run dev -w site",
+    "site:build": "npm run build -w site",
+    "site:preview": "npm run preview -w site"
+  }
+}
