@@ -37,9 +37,14 @@
   overflow: visible;
 }
 
-/* The drawing. The backend's SVG carries classes; colours come from tokens. */
+/*
+ * The drawing. The SVG carries classes (sch-wire or wire, sch-symbol or
+ * symbol, and so on) and no styles of its own: the sanitiser removes <style>
+ * and style attributes, so every colour comes from tokens here.
+ */
 
-.sch-host .sch-wire {
+.sch-host .sch-wire,
+.sch-host .wire {
   fill: none;
   stroke: var(--sch-wire);
   stroke-width: 2;
@@ -47,11 +52,13 @@
   stroke-linejoin: round;
 }
 
-.sch-host .sch-junction {
+.sch-host .sch-junction,
+.sch-host .junction {
   fill: var(--sch-junction);
 }
 
-.sch-host .sch-symbol {
+.sch-host .sch-symbol,
+.sch-host .symbol {
   fill: none;
   stroke: var(--sch-symbol);
   stroke-width: 2;
@@ -70,6 +77,28 @@
   stroke: none;
 }
 
+.sch-host text.symbol,
+.sch-host text.sch-symbol {
+  fill: var(--sch-symbol);
+}
+
+.sch-host [data-inst] {
+  cursor: pointer;
+}
+
+.sch-host [data-inst]:hover .symbol,
+.sch-host [data-inst][data-selected] .symbol {
+  stroke: var(--accent);
+}
+
+.sch-host [data-hl='added'] .symbol {
+  stroke: var(--sch-hl-added);
+}
+
+.sch-host [data-hl='changed'] .symbol {
+  stroke: var(--sch-hl-changed);
+}
+
 .sch-host .sch-name {
   fill: var(--sch-symbol);
   font-weight: 600;
@@ -79,16 +108,19 @@
   fill: var(--sch-label);
 }
 
-.sch-host .sch-label {
+.sch-host .sch-label,
+.sch-host .label {
   fill: var(--sch-label);
   font-weight: 600;
 }
 
-.sch-host .sch-directive {
+.sch-host .sch-directive,
+.sch-host .directive {
   fill: var(--sch-directive);
 }
 
-.sch-host .sch-comment {
+.sch-host .sch-comment,
+.sch-host .comment {
   fill: var(--sch-comment);
   font-family: var(--font-sans);
   font-style: italic;

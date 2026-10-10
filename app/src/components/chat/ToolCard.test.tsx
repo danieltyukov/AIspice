@@ -105,6 +105,20 @@ describe("ToolCard", () => {
     expect(screen.getByRole("button", { name: /Checking specs/ })).toBeDisabled();
   });
 
+  it("puts a plot from a tool result through the SVG policy", async () => {
+    const svg =
+      '<svg viewBox="0 0 10 10" onload="window.__plot=1"><script>window.__plot=1</script><a href="javascript:alert(1)"><polyline class="trace" points="0,0 10,10"/></a>' +
+      '<foreignObject><img src=x onerror="window.__plot=1"></foreignObject></svg>';
+    const call: ChatToolCall = { id: "t6", name: "plot", input: {}, output: { content: [], is_error: false, data: { kind: "plot", svg } } };
+    const { container } = await renderWithStore(<ToolCard call={call} streaming={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /Plotted the waveforms/ }));
+    const plot = container.querySelector(".tool-plot")!;
+    expect(plot.querySelector("svg polyline")).not.toBeNull();
+    expect(plot.querySelector("script, a, foreignObject, img")).toBeNull();
+    expect(plot.innerHTML).not.toMatch(/onload|onerror|javascript:/);
+    expect((window as unknown as { __plot?: number }).__plot).toBeUndefined();
+  });
+
   it("renders a specs table with pass and fail chips", async () => {
     const call: ChatToolCall = { id: "t5", name: "check_specs", input: {}, output: { content: [], is_error: false, data: { kind: "specs", report } } };
     await renderWithStore(<ToolCard call={call} streaming={false} />);

@@ -1,7 +1,7 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatToolCall, ToolData } from "../../ipc/types";
 import { duration } from "../../lib/format";
-import { sanitizeSvg } from "../../lib/sanitizeSvg";
+import { sanitizeSvgElement } from "../../lib/sanitizeSvg";
 import { useStore, useStoreApi } from "../../store/context";
 import { SpecTable } from "../SpecTable";
 import { DiffBlock } from "./DiffBlock";
@@ -211,8 +211,13 @@ function DataDetails({ data }: { data: ToolData }) {
   }
 }
 
+/** A plot from a tool result, through the same SVG policy as the schematic. */
 function PlotSvg({ svg }: { svg: string }) {
-  const clean = useMemo(() => sanitizeSvg(svg), [svg]);
+  const clean = useMemo(() => sanitizeSvgElement(svg), [svg]);
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (host.current && clean) host.current.replaceChildren(clean);
+  }, [clean]);
   if (!clean) return <p className="panel-note">The plot could not be shown.</p>;
-  return <div className="tool-plot" dangerouslySetInnerHTML={{ __html: clean }} />;
+  return <div className="tool-plot" ref={host} role="img" aria-label="Plot from the tool result" />;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
 import type { ComponentInfo, Finding, Highlight } from "../../ipc/types";
-import { sanitizeSvg } from "../../lib/sanitizeSvg";
+import { sanitizeSvgElement } from "../../lib/sanitizeSvg";
 import { useStore, useStoreApi } from "../../store/context";
 import { centerOn, fit, pan, parseViewBox, viewBox, zoomAt, type Box, type View } from "./viewport";
 import { PartPopover } from "./PartPopover";
@@ -57,7 +57,8 @@ export function SchematicView() {
   const highlights = useStore((s) => s.highlights);
   const locate = useStore((s) => s.locate);
 
-  const markup = useMemo(() => sanitizeSvg(view?.svg ?? ""), [view?.svg]);
+  // The sanitised drawing as a live element; null when there is none.
+  const drawing = useMemo(() => sanitizeSvgElement(view?.svg ?? ""), [view?.svg]);
   const paneRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<View>({ x: 0, y: 0, k: 1 });
@@ -88,21 +89,21 @@ export function SchematicView() {
     fittedRef.current = true;
   }, [commit]);
 
-  // New markup: inject it, read its natural size, size the SVG to the pane,
-  // then keep the current view or fit. The host's children are managed here,
-  // not by React, so re-renders never reset the viewBox or the highlight boxes.
-  const lastMarkup = useRef<string | null>(null);
+  // A new drawing: put the sanitised element in, read its natural size, size
+  // it to the pane, then keep the current view or fit. The host's children are
+  // managed here, not by React, so re-renders never reset the viewBox or the
+  // highlight boxes.
+  const lastDrawing = useRef<SVGSVGElement | null>(null);
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) {
-      lastMarkup.current = null;
+      lastDrawing.current = null;
       return;
     }
-    if (lastMarkup.current !== markup) {
-      host.innerHTML = markup;
-      lastMarkup.current = markup;
-      const svg = host.querySelector("svg");
-      if (!svg) return;
+    if (lastDrawing.current !== drawing && drawing) {
+      host.replaceChildren(drawing);
+      lastDrawing.current = drawing;
+      const svg = drawing;
       const natural = parseViewBox(svg.getAttribute("viewBox"));
       if (natural) contentRef.current = natural;
       svg.setAttribute("width", "100%");
@@ -119,12 +120,12 @@ export function SchematicView() {
     } else {
       commit(viewRef.current, false);
     }
-  }, [markup, view?.path, doFit, commit]);
+  }, [drawing, view?.path, doFit, commit]);
 
   useLayoutEffect(() => {
     const svg = svgEl();
     if (svg) applyHighlights(svg as SVGSVGElement, highlights);
-  }, [markup, highlights]);
+  }, [drawing, highlights]);
 
   useLayoutEffect(() => {
     const svg = svgEl();
@@ -135,7 +136,7 @@ export function SchematicView() {
         if (n.getAttribute("data-inst")?.toUpperCase() === selected.toUpperCase()) n.setAttribute("data-selected", "");
       });
     }
-  }, [markup, selected]);
+  }, [drawing, selected]);
 
   // Close the popover when the circuit changes underneath it.
   useEffect(() => {
@@ -360,7 +361,7 @@ export function SchematicView() {
         onWheel={onWheel}
         onKeyDown={onKeyDown}
       >
-        {markup ? (
+        {drawing ? (
           <div ref={hostRef} className="sch-host" />
         ) : (
           <div className="empty">
