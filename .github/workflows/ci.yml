@@ -121,6 +121,10 @@ jobs:
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
 
+      - name: Build the debug app with its interface embedded
+        working-directory: app
+        run: npx tauri build --debug --no-bundle
+
       - name: Desktop end-to-end
         run: xvfb-run -a npm run test:desktop -w app
 
