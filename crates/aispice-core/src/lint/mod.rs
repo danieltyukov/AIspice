@@ -100,6 +100,10 @@ pub const RULES: &[(&str, &str)] = &[
         "There is no analysis directive (.tran, .ac, .dc, .op, .noise, .tf).",
     ),
     (
+        "multiple-analyses",
+        "More than one analysis directive; LTspice and Xyce run only one per simulation.",
+    ),
+    (
         "multiple-labels",
         "One net carries several different labels.",
     ),
@@ -400,12 +404,24 @@ pub fn lint(sch: &Schematic, lib: &SymbolLibrary) -> LintReport {
         }
     }
 
-    if !sch
+    let analyses: Vec<String> = sch
         .directives()
         .flat_map(|t| t.lines())
-        .any(|l| crate::netlist::spice::is_analysis(&l))
-    {
+        .filter(|l| crate::netlist::spice::is_analysis(l))
+        .map(|l| l.trim().to_string())
+        .collect();
+    if analyses.is_empty() {
         out.push(Finding::new(Severity::Warning, "no-analysis", "No analysis directive. Add one of .op, .tran, .ac, .dc, .noise or .tf before simulating."));
+    } else if analyses.len() > 1 {
+        out.push(Finding::new(
+            Severity::Warning,
+            "multiple-analyses",
+            format!(
+                "{} analysis directives ({}). LTspice and Xyce run only one per simulation (aispice runs the first there); ngspice runs them all. Keep one, or turn the others into comments.",
+                analyses.len(),
+                analyses.join(", ")
+            ),
+        ));
     }
 
     // Overlapping parts.
@@ -480,6 +496,16 @@ mod tests {
         let r = rules(&src);
         assert!(r.contains(&"no-ground".to_string()), "{r:?}");
         assert!(r.contains(&"no-analysis".to_string()), "{r:?}");
+    }
+
+    #[test]
+    fn two_analyses_are_flagged() {
+        let src = RC.replace(
+            "TEXT 0 232 Left 2 !.tran 5m\n",
+            "TEXT 0 232 Left 2 !.tran 5m\nTEXT 0 264 Left 2 !.ac dec 20 10 100k\n",
+        );
+        assert!(rules(&src).contains(&"multiple-analyses".to_string()));
+        assert!(!rules(RC).contains(&"multiple-analyses".to_string()));
     }
 
     #[test]

@@ -844,7 +844,19 @@ fn pick<'a>(m: &Measure, exprs: &[Expr], datasets: &'a [Dataset]) -> Result<&'a 
     let domain = m.domain();
     let mut first_err = None;
     let mut any = false;
-    for ds in datasets.iter().filter(|d| domain.accepts(d)) {
+    // Measurements that accept any analysis (avg, pp, min, max, rms...) are
+    // meant for waveforms, so a run with both a transient and an AC analysis
+    // measures the transient one, whatever order the simulator wrote them in.
+    let mut candidates: Vec<&Dataset> = datasets.iter().filter(|d| domain.accepts(d)).collect();
+    if domain == Domain::Any {
+        candidates.sort_by_key(|d| match d.kind {
+            AnalysisKind::Transient => 0,
+            AnalysisKind::Dc => 1,
+            AnalysisKind::Op => 2,
+            _ => 3,
+        });
+    }
+    for ds in candidates {
         any = true;
         match exprs.iter().try_for_each(|e| e.eval(ds, 0..0).map(|_| ())) {
             Ok(()) => return Ok(ds),
@@ -2525,6 +2537,28 @@ mod tests {
             (a - b).abs() <= tol * b.abs().max(1e-300),
             "{a} vs {b} (rel tol {tol})"
         );
+    }
+
+    /// Was a bug found comparing simulators: ngspice and Xyce write the AC
+    /// analysis before the transient, and avg/pp measured the AC magnitudes
+    /// (a window of 3m..5m read as millihertz). Waveform measurements now use
+    /// the transient whatever the order.
+    #[test]
+    fn waveform_measures_prefer_the_transient() {
+        let f = logspace(10.0, 1e6, 50);
+        let gain: Vec<Complex> = f.iter().map(|_| Complex::new(100.0, 0.0)).collect();
+        let ac_ds = ac(f, vec![("V(out)", gain)]);
+        let t = linspace(0.0, 5e-3, 501);
+        let v: Vec<f64> = t.iter().map(|t| (2.0 * PI * 1e3 * t).sin()).collect();
+        let tran_ds = tran(t, vec![("V(out)", v)]);
+        let both = [ac_ds, tran_ds];
+        let avg = measure("a", &m("avg(V(out), 1m, 5m)"), &both);
+        assert!(avg.value.unwrap().abs() < 1e-3, "{:?}", avg);
+        let pp = measure("p", &m("pp(V(out), 3m, 5m)"), &both);
+        rel(pp.value.unwrap(), 2.0, 1e-3);
+        // A frequency measurement still finds the AC analysis.
+        let g = measure("g", &m("gain_db_at(V(out), 1k)"), &both);
+        rel(g.value.unwrap(), 40.0, 1e-6);
     }
 
     /// First-order step response v = 1 - exp(-t/tau), on a grid that is
