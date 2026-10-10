@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-declare module "*.css" {
-  const content: Record<string, string>;
-  export default content;
+interface ImportMetaEnv {
+  /** "1" runs the mock backend without delays. */
+  readonly VITE_MOCK_FAST?: string;
 }

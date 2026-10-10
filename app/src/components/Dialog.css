@@ -1,0 +1,82 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--scrim);
+  animation: scrim-in var(--dur-quick) var(--ease);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  animation: dialog-in var(--dur-base) var(--ease);
+}
+
+.dialog[data-wide] {
+  width: min(680px, 100%);
+}
+
+.dialog-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-title {
+  font-size: var(--fs-large);
+  letter-spacing: var(--ls-h2);
+}
+
+.dialog-text {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px 18px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

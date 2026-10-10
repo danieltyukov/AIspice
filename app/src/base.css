@@ -1,0 +1,504 @@
+/*
+ * Element defaults and the controls every pane shares. Tokens only: a literal
+ * here is a geometric constant, never a design decision. Component styles live
+ * beside their components.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure,
+pre {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+h1 {
+  font-size: var(--fs-h1);
+  letter-spacing: var(--ls-h1);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: var(--fs-h2);
+  letter-spacing: var(--ls-h2);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.mono,
+time,
+.tabular,
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-control);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.startup {
+  display: grid;
+  place-content: center;
+  height: 100%;
+  padding: 24px;
+  color: var(--muted);
+  font-size: var(--fs-base);
+  text-align: center;
+}
+
+/* Buttons ---------------------------------------------------------------- */
+
+.button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding-inline: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-size: var(--fs-mini);
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
+  transition:
+    color var(--dur-quick) var(--ease),
+    border-color var(--dur-quick) var(--ease),
+    background-color var(--dur-quick) var(--ease);
+}
+
+.button:hover {
+  background-color: var(--hover);
+  border-color: var(--muted);
+}
+
+.button:active {
+  background-color: var(--pressed);
+}
+
+.button:disabled {
+  color: var(--faint);
+  border-color: var(--border);
+  background: none;
+  cursor: default;
+}
+
+.button-primary {
+  border-color: var(--accent-hover);
+  background-color: var(--accent-hover);
+  color: var(--on-accent);
+  font-weight: 500;
+}
+
+.button-primary:hover {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.button-primary:active {
+  box-shadow: inset 0 0 0 999px var(--pressed);
+}
+
+.button-primary:disabled {
+  border-color: var(--border);
+  background-color: var(--border);
+  color: var(--faint);
+}
+
+.button-danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.button-tall {
+  min-height: 34px;
+  padding-inline: 14px;
+  font-size: var(--fs-small);
+}
+
+/* Borderless, for dense toolbars where a row of outlines would be noise. */
+.button-quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+
+.button-quiet:hover {
+  border-color: transparent;
+  background-color: var(--hover);
+  color: var(--text);
+}
+
+.button-quiet:disabled {
+  border-color: transparent;
+  color: var(--faint);
+  opacity: 0.6;
+}
+
+.button-quiet[aria-pressed='true'] {
+  background-color: var(--accent-tint);
+  color: var(--accent-hover);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-hover);
+  font-size: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--dur-quick) var(--ease);
+}
+
+.link:hover {
+  text-decoration-color: currentColor;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* Fields ----------------------------------------------------------------- */
+
+.input,
+.select {
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-small);
+  transition: border-color var(--dur-quick) var(--ease);
+}
+
+.select {
+  padding-inline-end: 24px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 13px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.input:hover,
+.select:hover {
+  border-color: var(--muted);
+}
+
+.input::placeholder {
+  color: var(--faint);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+
+.check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent-hover);
+}
+
+/* One setting with a few choices. The chosen segment is tinted, not filled. */
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  overflow: hidden;
+}
+
+.segment {
+  min-height: 28px;
+  padding-inline: 11px;
+  border-inline-start: 1px solid var(--border-strong);
+  font-size: var(--fs-mini);
+  color: var(--muted);
+  transition:
+    background-color var(--dur-quick) var(--ease),
+    color var(--dur-quick) var(--ease);
+}
+
+.segment:first-child {
+  border-inline-start: 0;
+}
+
+.segment:hover {
+  background-color: var(--hover);
+  color: var(--text);
+}
+
+.segment[aria-pressed='true'] {
+  background-color: var(--accent-tint);
+  color: var(--accent-hover);
+  font-weight: 500;
+}
+
+.segment:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+/* Blocks ----------------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+}
+
+.panel-title {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.panel-note {
+  font-size: var(--fs-mini);
+  color: var(--muted);
+}
+
+.section-title {
+  font-size: var(--fs-mini);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Pass, fail and neutral markers in tables and cards. Text, not colour alone. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chip[data-tone='pass'] {
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success);
+}
+
+.chip[data-tone='fail'] {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  color: var(--danger);
+}
+
+.chip[data-tone='info'] {
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  color: var(--info);
+}
+
+.dot {
+  flex: 0 0 auto;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+
+.dot[data-on] {
+  background: var(--success);
+  box-shadow: none;
+}
+
+.dot[data-tone='work'] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.dot[data-tone='error'] {
+  background: var(--danger);
+  box-shadow: none;
+}
+
+/* The sentence a pane shows when it has nothing to draw yet. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  min-height: 160px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.empty-text {
+  max-width: 44ch;
+  font-size: var(--fs-small);
+}
+
+.error-text {
+  color: var(--danger);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+
+.data-table th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-mini);
+  font-weight: 500;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.data-table th.num {
+  font-family: var(--font-sans);
+}

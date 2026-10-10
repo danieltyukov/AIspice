@@ -1,0 +1,52 @@
+/* A hairline with a wider invisible grip around it. */
+.splitter {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  background: var(--border);
+  touch-action: none;
+  transition: background-color var(--dur-quick) var(--ease);
+}
+
+.splitter[data-orientation='vertical'] {
+  width: 1px;
+  cursor: col-resize;
+}
+
+.splitter[data-orientation='horizontal'] {
+  height: 1px;
+  cursor: row-resize;
+}
+
+.splitter::before {
+  content: '';
+  position: absolute;
+}
+
+.splitter[data-orientation='vertical']::before {
+  inset: 0 -4px;
+}
+
+.splitter[data-orientation='horizontal']::before {
+  inset: -4px 0;
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--accent);
+}
+
+.splitter:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+body[data-resizing='vertical'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body[data-resizing='horizontal'] {
+  cursor: row-resize;
+  user-select: none;
+}

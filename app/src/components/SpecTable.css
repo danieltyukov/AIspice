@@ -1,0 +1,45 @@
+.spec-table td {
+  white-space: nowrap;
+}
+
+.spec-limit-cell {
+  color: var(--muted);
+  font-size: var(--fs-mini);
+}
+
+.spec-limit {
+  display: block;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+
+.spec-margin {
+  color: var(--muted);
+}
+
+.spec-margin[data-negative] {
+  color: var(--danger);
+}
+
+.spec-table[data-compact] {
+  font-size: var(--fs-mini);
+}
+
+.spec-table[data-compact] th,
+.spec-table[data-compact] td {
+  padding: 5px 6px;
+}
+
+.spec-table[data-compact] th:first-child,
+.spec-table[data-compact] td:first-child {
+  padding-left: 0;
+}
+
+.spec-table[data-compact] th:last-child,
+.spec-table[data-compact] td:last-child {
+  padding-right: 0;
+}
+
+.spec-table[data-compact] td {
+  white-space: normal;
+}
