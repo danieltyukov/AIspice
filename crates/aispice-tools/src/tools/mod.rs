@@ -6,6 +6,7 @@
 
 mod render_tools;
 mod schematic_tools;
+mod sim_tools;
 
 use crate::workspace::Workspace;
 use aispice_agent::{Registry, ToolOutput};
@@ -13,6 +14,7 @@ use std::sync::Arc;
 
 pub use render_tools::*;
 pub use schematic_tools::*;
+pub use sim_tools::*;
 
 /// All tools, bound to one workspace.
 pub fn registry(ws: Arc<Workspace>) -> Registry {
@@ -25,7 +27,16 @@ pub fn registry(ws: Arc<Workspace>) -> Registry {
     r.register(NetlistTool { ws: ws.clone() });
     r.register(History { ws: ws.clone() });
     r.register(RenderSchematic { ws: ws.clone() });
-    r.register(Symbols { ws });
+    r.register(Symbols { ws: ws.clone() });
+    r.register(Simulators { ws: ws.clone() });
+    r.register(Simulate { ws: ws.clone() });
+    r.register(MeasureTool { ws: ws.clone() });
+    r.register(CheckSpecs { ws: ws.clone() });
+    r.register(Plot { ws: ws.clone() });
+    r.register(ReadWaveform { ws: ws.clone() });
+    r.register(Sweep { ws: ws.clone() });
+    r.register(MonteCarlo { ws: ws.clone() });
+    r.register(Optimize { ws });
     r
 }
 

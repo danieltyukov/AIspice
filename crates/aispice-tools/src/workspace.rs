@@ -6,6 +6,7 @@
 //! mode, approve an edit before it is written.
 
 use crate::project::{Project, ProjectError};
+use crate::runner::Runner;
 use async_trait::async_trait;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -28,6 +29,8 @@ pub struct Hooks {
 pub struct Workspace {
     project: RwLock<Option<Arc<Project>>>,
     hooks: RwLock<Hooks>,
+    /// Simulators and recent results, shared by every tool.
+    pub runner: Runner,
 }
 
 impl std::fmt::Debug for Workspace {
@@ -56,6 +59,7 @@ impl Workspace {
         Self {
             project: RwLock::new(None),
             hooks: RwLock::new(Hooks::default()),
+            runner: Runner::default(),
         }
     }
 

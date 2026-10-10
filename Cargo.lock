@@ -123,8 +123,10 @@ version = "0.2.0"
 dependencies = [
  "aispice-agent",
  "aispice-core",
+ "aispice-sim",
  "async-trait",
  "base64 0.22.1",
+ "futures",
  "schemars 1.2.2",
  "serde",
  "serde_json",

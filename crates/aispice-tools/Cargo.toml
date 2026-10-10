@@ -12,6 +12,7 @@ homepage.workspace = true
 [dependencies]
 aispice-core.workspace = true
 aispice-agent.workspace = true
+aispice-sim.workspace = true
 async-trait = "0.1"
 schemars.workspace = true
 serde.workspace = true
@@ -19,6 +20,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util = "0.7"
+futures.workspace = true
 base64 = "0.22"
 
 [dev-dependencies]
