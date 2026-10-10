@@ -134,20 +134,13 @@ jobs:
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
           LIBGL_ALWAYS_SOFTWARE: "1"
 
-      - name: Keep the end-to-end screenshots
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-e2e
-          path: app/e2e-desktop/output/
-          if-no-files-found: ignore
-
       - name: Upload screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-e2e
           path: app/e2e-desktop/output/
+          if-no-files-found: ignore
           retention-days: 7
 
   interface:
