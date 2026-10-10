@@ -38,7 +38,7 @@ Pure computation over files: no processes and no network.
 | `geometry` | Grid points, LTspice's rotate-then-mirror orientations, segment indexing for connectivity |
 | `netlist` | Schematic to SPICE netlist, following LTspice's own netlister: net naming, pin order, model cards, hierarchy. `policy` checks every netlist before a simulator sees it |
 | `edit` | Typed edit operations (add, remove, move, rotate, set value or attribute, connect pins, label nets, directives) with automatic placement and wire routing |
-| `lint` | Rule checks: missing or duplicate names, pins that connect to nothing, dangling wire ends, nets that reach only one pin |
+| `lint` | Rule checks for what makes a simulation fail or mislead: no ground, floating pins, nets with no DC path, shorted parts and sources, sources in parallel, missing values or analysis, duplicate names; readability checks (off-grid, overlapping parts) as information |
 | `summary`, `diff` | What the agent reads: parts with the net on every pin, and a semantic diff after an edit |
 | `render` | SVG and PNG drawings of schematics |
 
