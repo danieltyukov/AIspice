@@ -79,8 +79,45 @@ pub fn instance_name(prefix: &str, inst: &str) -> String {
 /// Build the netlist. `title` becomes the first line (LTspice writes the
 /// schematic's path there).
 pub fn build(sch: &Schematic, lib: &SymbolLibrary, title: &str) -> (Built, Connectivity) {
-    build_at_depth(sch, lib, title, 0)
+    let mut hier = Hierarchy {
+        done: Vec::new(),
+        blocks: Vec::new(),
+        budget: MAX_SHEETS,
+    };
+    let (mut built, conn) = build_at_depth(sch, lib, title, 0, &mut hier);
+    if !hier.blocks.is_empty() {
+        built.netlist.items.push(Line::Comment {
+            text: "block symbol definitions".into(),
+        });
+        built
+            .netlist
+            .items
+            .extend(hier.blocks.into_iter().map(Line::Subckt));
+    }
+    (built, conn)
 }
+
+/// Every hierarchical sheet is netlisted once, however many times it is
+/// placed or however the sheets reference each other, and the total is
+/// capped, so a crafted hierarchy cannot make the work grow exponentially.
+struct Hierarchy {
+    /// Lower-cased names of sheets built or being built.
+    done: Vec<String>,
+    /// Definitions in the order first needed; SPICE subcircuits are global, so
+    /// they all go at the top level, as LTspice puts them.
+    blocks: Vec<super::spice::Subckt>,
+    budget: usize,
+}
+
+/// At most this many distinct hierarchical sheets per netlist.
+const MAX_SHEETS: usize = 256;
+
+/// Pin orders above this are treated as a broken symbol: the pins are taken in
+/// file order instead of sizing a node list from a hostile number.
+const MAX_PIN_ORDER: usize = 1024;
+
+/// Sheets larger than this are not read.
+const MAX_SHEET_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Hierarchical sheets nest at most this deep; LTspice designs rarely go past
 /// three, and the limit stops a sheet that includes itself.
@@ -108,6 +145,13 @@ fn hierarchical_child(lib: &SymbolLibrary, symbol_name: &str) -> Option<(String,
                 .extension()
                 .is_some_and(|x| x.eq_ignore_ascii_case("asc"));
             if is_asc && stem.as_deref() == Some(base.as_str()) {
+                if std::fs::metadata(&path)
+                    .map(|m| m.len())
+                    .unwrap_or(u64::MAX)
+                    > MAX_SHEET_BYTES
+                {
+                    return None;
+                }
                 let bytes = std::fs::read(&path).ok()?;
                 let name = path.file_stem()?.to_string_lossy().into_owned();
                 return Some((name, crate::schematic::parse_bytes(&bytes).0));
@@ -122,6 +166,7 @@ fn build_at_depth(
     lib: &SymbolLibrary,
     title: &str,
     depth: usize,
+    hier: &mut Hierarchy,
 ) -> (Built, Connectivity) {
     let conn = connect(sch, lib);
     let mut built = Built {
@@ -129,7 +174,6 @@ fn build_at_depth(
         ..Default::default()
     };
     let mut items = Vec::new();
-    let mut blocks: Vec<super::spice::Subckt> = Vec::new();
     let mut defaults_needed: Vec<&str> = Vec::new();
     let mut missing_pins = 0usize;
 
@@ -169,11 +213,11 @@ fn build_at_depth(
                         nodes,
                         rest,
                     }));
-                    if !blocks
-                        .iter()
-                        .any(|b: &super::spice::Subckt| b.name.eq_ignore_ascii_case(&child_name))
-                    {
-                        let (child_built, _) = build_at_depth(&child, lib, "", depth + 1);
+                    let key = child_name.to_ascii_lowercase();
+                    if !hier.done.contains(&key) && hier.budget > 0 {
+                        hier.done.push(key);
+                        hier.budget -= 1;
+                        let (child_built, _) = build_at_depth(&child, lib, "", depth + 1, hier);
                         built.warnings.extend(
                             child_built
                                 .warnings
@@ -185,7 +229,7 @@ fn build_at_depth(
                             .iter()
                             .map(|pd| pd.name.clone())
                             .collect();
-                        blocks.push(super::spice::Subckt {
+                        hier.blocks.push(super::spice::Subckt {
                             name: child_name,
                             ports,
                             params: String::new(),
@@ -225,7 +269,16 @@ fn build_at_depth(
             .iter()
             .map(|pd| pd.spice_order)
             .collect();
-        let max_order = orders.iter().copied().max().unwrap_or(0) as usize;
+        let mut orders = orders;
+        let mut max_order = orders.iter().copied().max().unwrap_or(0) as usize;
+        if max_order > MAX_PIN_ORDER {
+            built.warnings.push(format!(
+                "{}: symbol `{}` has a pin order above {MAX_PIN_ORDER}; pins taken in file order",
+                p.inst, sym.name
+            ));
+            orders = (1..=pins.len() as u32).collect();
+            max_order = pins.len();
+        }
         let width = if letter == 'A' {
             max_order.max(8)
         } else {
@@ -370,12 +423,6 @@ fn build_at_depth(
         items.push(Line::Directive {
             text: format!(".lib {l}"),
         });
-    }
-    if !blocks.is_empty() {
-        items.push(Line::Comment {
-            text: "block symbol definitions".into(),
-        });
-        items.extend(blocks.into_iter().map(Line::Subckt));
     }
 
     built.netlist = Netlist {
@@ -540,6 +587,33 @@ mod tests {
         let src = "Version 4\nSHEET 1 880 680\nWIRE 16 -64 16 16\nFLAG 16 -32 zzz\nFLAG 16 -64 aaa\nFLAG 16 96 0\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\n";
         let text = netlist_of(src, &SymbolLibrary::builtin_only());
         assert!(text.contains("R1 zzz 0 1k"), "{text}");
+    }
+
+    #[test]
+    fn hostile_pin_order_and_self_referencing_blocks_are_bounded() {
+        let asy = "SymbolType CELL\nSYMATTR Prefix X\nSYMATTR Value p\nPIN 0 0 NONE 0\nPINATTR SpiceOrder 4000000000\n";
+        let (_d, lib) = lib_with(&[("huge", asy)]);
+        let src = "Version 4\nSHEET 1 880 680\nSYMBOL huge 0 0 R0\nSYMATTR InstName U1\n";
+        let (sch, _) = parse(src);
+        let (built, _) = build(&sch, &lib, "* t");
+        assert!(built.warnings.iter().any(|w| w.contains("pin order")));
+
+        // A sheet that places itself must terminate.
+        let dir = std::env::temp_dir().join(format!("aispice-selfref-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("loop.asy"),
+            "SymbolType BLOCK\nPIN 0 0 LEFT 8\nPINATTR PinName a\nPINATTR SpiceOrder 1\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("loop.asc"), "Version 4\nSHEET 1 880 680\nSYMBOL loop 0 0 R0\nSYMATTR InstName X1\nSYMBOL loop 64 0 R0\nSYMATTR InstName X2\n").unwrap();
+        let lib =
+            SymbolLibrary::builtin_only().with_dir(&dir, crate::symbol::SymbolSource::Project);
+        let (sch, _) =
+            parse("Version 4\nSHEET 1 880 680\nSYMBOL loop 0 0 R0\nSYMATTR InstName X1\n");
+        let (built, _) = build(&sch, &lib, "* t");
+        assert_eq!(built.netlist.subckts().count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
