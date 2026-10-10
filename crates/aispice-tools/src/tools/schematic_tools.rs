@@ -65,7 +65,7 @@ impl Tool for ListCircuits {
     fn spec(&self) -> ToolSpec {
         spec::<NoInput>(
             "list_circuits",
-            "List the circuit files in the open project (.asc schematics and SPICE netlists), newest first. Call this first when you do not know the file names.",
+            "List the circuit files in the open project (.asc schematics and SPICE netlists), newest first. Only needed when you do not know the file name: when the user names a file, read it directly.",
         )
     }
 
@@ -141,7 +141,7 @@ pub struct EditSchematic {
 }
 
 const EDIT_DESCRIPTION: &str = r#"
-Change a schematic with circuit-level edits. Refer to parts by instance name (R1) and to pins as PART.PIN (R1.A, R1.2, Q1.B, V1.+, U1.In-). Never compute coordinates: `connect` routes wires itself and only ever joins the two nets you name (it falls back to net labels when no clean route exists), `connect_to_net` attaches a pin to a named net or to ground (`0`), and `add_component` without `at` finds free space near `near`. Typical sequence for a new part: add_component, then connect or connect_to_net for each pin. Two-terminal parts are vertical by default; orient R90 makes them horizontal. Directives (.tran, .ac, .op, .param, .meas, .step) go in with add_directive.
+Change a schematic with circuit-level edits. Refer to parts by instance name (R1) and to pins as PART.PIN with the pin names read_schematic lists (R1.A, R1.2, Q1.B, V1.+, and U1.invin, U1.noninvin, U1.out for the built-in op-amp). Never compute coordinates: `connect` routes wires itself and only ever joins the two nets you name (it falls back to net labels when no clean route exists), `connect_to_net` attaches a pin to a named net or to ground (`0`), and `add_component` without `at` finds free space near `near`. Typical sequence for a new part: add_component, then connect or connect_to_net for each pin. Two-terminal parts are vertical by default; orient R90 makes them horizontal. Directives (.tran, .ac, .op, .param, .meas, .step) go in with add_directive.
 The edit is saved immediately (the user can undo it) and LTspice reloads if it is open. The result lists what changed, a semantic diff, and any electrical rule problems the edit introduced; fix those before simulating.
 "#;
 

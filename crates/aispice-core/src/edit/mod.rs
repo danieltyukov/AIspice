@@ -92,7 +92,8 @@ fn pt(xy: Xy) -> Point {
 }
 
 /// One edit. Component and pin references use instance names (`R1`) and
-/// `COMPONENT.PIN` (`R1.A`, `R1.2`, `Q1.B`, `V1.+`, `U1.In-`).
+/// `COMPONENT.PIN` with the pin names the symbol defines (`R1.A`, `R1.2`,
+/// `Q1.B`, `V1.+`, `U1.invin` for the built-in op-amp).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum EditOp {
@@ -1119,7 +1120,7 @@ pub fn flat_edit_schema() -> serde_json::Value {
         .map(|(op, alias, real)| format!("{op} `{alias}` for `{real}`"))
         .collect();
     let description = format!(
-        "One edit. Fields per op: {}. PIN is PART.PIN such as R1.A, R1.2, Q1.B, V1.+, U1.In-. Also accepted: {}; `component` or `part` for `name`; set_attribute for set_attr.",
+        "One edit. Fields per op: {}. PIN is PART.PIN with a pin name read_schematic lists, such as R1.A, R1.2, Q1.B, V1.+, or U1.invin, U1.noninvin, U1.out for the built-in op-amp. Also accepted: {}; `component` or `part` for `name`; set_attribute for set_attr.",
         forms.join(" | "),
         aliases.join(", ")
     );

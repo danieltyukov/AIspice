@@ -28,9 +28,9 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-const MEASURE_SYNTAX: &str = "Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().";
+const MEASURE_SYNTAX: &str = "Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db), peaking_db(expr), q_lowpass(expr). bandwidth_3db is the first frequency where the gain falls 3 dB below the gain at the lowest swept frequency (with `peak`, 3 dB below the peak gain, and for a bandpass the width between the two edges); freq_at_db is where the gain crosses an absolute level in dB, so freq_at_db(V(out), -3) is the -3 dB corner only when the low-frequency gain is 0 dB. peaking_db is the peak gain minus the low-frequency gain (0 for a Butterworth lowpass); q_lowpass estimates the Q of a second-order lowpass from an AC run (0.707 for Butterworth, with its natural frequency as f0); poles_zeros gives Q exactly. Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().";
 
-const SPEC_SYNTAX: &str = "Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`.";
+const SPEC_SYNTAX: &str = "Specs are one per line: `name = measurement op limit`, with op one of `>=`, `<=`, `in a..b` or `= target +- tol`, e.g. `bw = bandwidth_3db(V(out)) in 1Meg..2Meg`, `gain = gain_db_at(V(out)/V(in), 1k) >= 20`, `pm = phase_margin(V(out)) >= 45`, `q = q_lowpass(V(out)) = 0.707 +- 0.03`.";
 
 fn parse_measures(lines: &[String]) -> Result<Vec<(String, Measure)>, String> {
     lines
@@ -1766,5 +1766,29 @@ impl Tool for OperatingPoint {
             "devices": devices_json,
             "checks": checks,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The measure and check_specs descriptions must say what bandwidth_3db
+    /// is measured from and how freq_at_db differs, and name every kind.
+    #[test]
+    fn measurement_help_explains_the_reference_levels() {
+        for kind in aispice_sim::measure::KINDS {
+            assert!(
+                MEASURE_SYNTAX.contains(kind),
+                "{kind} missing from the help"
+            );
+        }
+        for words in [
+            "below the gain at the lowest swept frequency",
+            "absolute level",
+            "poles_zeros",
+        ] {
+            assert!(MEASURE_SYNTAX.contains(words), "`{words}` missing");
+        }
     }
 }

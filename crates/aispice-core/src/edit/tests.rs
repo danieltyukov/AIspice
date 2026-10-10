@@ -158,6 +158,28 @@ fn bad_pin_reports_valid_pins() {
     );
 }
 
+/// Models write op-amp pins as In- or In+; the built-in op-amp calls them
+/// invin and noninvin. The error lists the real names and points at the
+/// one meant.
+#[test]
+fn opamp_pin_aliases_point_at_the_real_pin() {
+    let src = "Version 4\nSHEET 1 880 680\nSYMBOL OpAmps/opamp 0 0 R0\nSYMATTR InstName U1\n";
+    let (mut sch, _) = parse(src);
+    for (asked, meant) in [("In-", "invin"), ("IN+", "noninvin"), ("vout", "out")] {
+        let err = apply(
+            &mut sch,
+            &lib(),
+            &ops(&format!(
+                r#"[{{"op": "connect_to_net", "pin": "U1.{asked}", "net": "x"}}]"#
+            )),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("invin (1), noninvin (2), out (3)"), "{err}");
+        assert!(err.contains(&format!("did you mean U1.{meant}?")), "{err}");
+    }
+}
+
 #[test]
 fn auto_placed_parts_start_unconnected() {
     let src = "Version 4\nSHEET 1 880 680\nWIRE -100 16 400 16\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\n";
