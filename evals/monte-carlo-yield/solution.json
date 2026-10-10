@@ -1,0 +1,10 @@
+[
+  {"tools": [{"name": "monte_carlo", "input": {
+    "circuit": "filter.asc",
+    "tolerances": [{"target": "R*", "tol_pct": 5}, {"target": "C*", "tol_pct": 10}],
+    "runs": 200,
+    "seed": 1,
+    "specs": "fc = bandwidth_3db(V(out)) in 1.45k..1.75k"
+  }}]},
+  {"answer": "The yield is 83% over 200 runs (seed 1, uniform tolerances): about one filter in six has its corner outside 1.45 kHz to 1.75 kHz. The 10% capacitor tolerance dominates the spread. The circuit is unchanged."}
+]

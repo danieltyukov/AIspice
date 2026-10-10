@@ -1,0 +1,20 @@
+id = "rc-design"
+title = "Design an RC low-pass from scratch"
+difficulty = "medium"
+prompt = """
+Create lowpass.asc: a first-order RC low-pass filter driven by a voltage source with an AC amplitude of 1 V. Name the input net in and the output net out. Put the -3 dB corner at 2 kHz within 5%, with a resistor of at least 1 kΩ. Use an E24 resistor value and an E12 capacitor value.
+"""
+circuit = "lowpass.asc"
+analysis = ".ac dec 50 10 1Meg"
+specs = """
+fc = bandwidth_3db(V(out)) in 1.9k..2.1k
+pass = gain_db_at(V(out)/V(in), 10) in -0.1..0.1
+"""
+max_steps = 10
+constraints = [
+  { kind = "value_range", prefix = "R", min = "1k" },
+  { kind = "e_series", prefix = "R", series = "E24" },
+  { kind = "e_series", prefix = "C", series = "E12" },
+  { kind = "part_count", prefix = "C", min = 1, max = 1 },
+  { kind = "max_parts", count = 3 },
+]

@@ -1,0 +1,20 @@
+id = "ce-bias"
+title = "Bias a common-emitter stage for its collector voltage"
+difficulty = "medium"
+prompt = """
+The common-emitter stage in ce_bias.asc (12 V supply, 2N3904) is biased into saturation. Change R1 so the collector, node col, sits at 6 V within 0.4 V. Keep R2, Rc and Re as they are and use an E24 value for R1.
+"""
+circuit = "ce_bias.asc"
+analysis = ".op"
+specs = """
+vc = value_at(V(col), 0) = 6 +- 0.4
+"""
+max_steps = 12
+constraints = [
+  { kind = "value", name = "R2", equals = "10k" },
+  { kind = "value", name = "Rc", equals = "4.7k" },
+  { kind = "value", name = "Re", equals = "1k" },
+  { kind = "e_series", prefix = "R", series = "E24" },
+  { kind = "part_count", prefix = "Q", min = 1, max = 1 },
+  { kind = "max_parts", count = 6 },
+]

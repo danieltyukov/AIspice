@@ -1,0 +1,17 @@
+id = "gain-bandwidth"
+title = "Meet a gain and a bandwidth beyond one op-amp's GBW"
+difficulty = "hard"
+prompt = """
+amp.asc is a non-inverting amplifier with a gain of 20 (26 dB) on an op-amp with a 1 MHz gain-bandwidth product (GBW=1Meg), so its bandwidth is only about 50 kHz. Keep the gain from in to out at 26 dB within 0.5 dB at 1 kHz but reach a -3 dB bandwidth of at least 100 kHz. You may add parts, but every op-amp must have GBW=1Meg or less, and the amplifier's output must stay on net out.
+"""
+circuit = "amp.asc"
+analysis = ".ac dec 50 10 10Meg"
+specs = """
+gain = gain_db_at(V(out)/V(in), 1k) = 26 +- 0.5
+bw = bandwidth_3db(V(out)) >= 100k
+"""
+max_steps = 16
+constraints = [
+  { kind = "subckt_param", subckt = "opamp", param = "GBW", max = "1Meg" },
+  { kind = "part_count", symbol = "OpAmps/opamp", min = 1 },
+]

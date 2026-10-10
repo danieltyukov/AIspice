@@ -1,0 +1,16 @@
+[
+  {"tools": [{"name": "create_schematic", "input": {"circuit": "lowpass.asc", "edits": [
+    {"op": "add_component", "symbol": "voltage", "name": "V1", "value": "SINE(0 1 1k)", "attrs": {"Value2": "AC 1"}},
+    {"op": "add_component", "symbol": "res", "name": "R1", "value": "8.2k", "orient": "R90", "near": "V1"},
+    {"op": "add_component", "symbol": "cap", "name": "C1", "value": "10n", "near": "R1"},
+    {"op": "connect", "from": "V1.+", "to": "R1.A"},
+    {"op": "connect", "from": "R1.B", "to": "C1.A"},
+    {"op": "connect_to_net", "pin": "V1.+", "net": "in"},
+    {"op": "connect_to_net", "pin": "C1.A", "net": "out"},
+    {"op": "connect_to_net", "pin": "V1.-", "net": "0"},
+    {"op": "connect_to_net", "pin": "C1.B", "net": "0"},
+    {"op": "add_directive", "text": ".ac dec 50 10 1Meg"}
+  ]}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "lowpass.asc", "specs": "fc = bandwidth_3db(V(out)) in 1.9k..2.1k\npass = gain_db_at(V(out)/V(in), 10) in -0.1..0.1"}}]},
+  {"answer": "lowpass.asc has V1 (AC 1) driving R1 = 8.2 kOhm into C1 = 10 nF to ground, with nets in and out. The corner is 1/(2 pi x 8.2k x 10n) = 1.94 kHz, inside 2 kHz +- 5%, and the passband gain is 0 dB."}
+]

@@ -22,9 +22,11 @@ tokio.workspace = true
 tokio-util = "0.7"
 futures.workspace = true
 base64 = "0.22"
+tempfile.workspace = true
+toml = "1"
+tracing.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 aispice-agent = { workspace = true, features = ["testing"] }
 
 [lints]

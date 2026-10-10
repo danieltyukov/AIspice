@@ -1,0 +1,6 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "rc.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "rc.asc", "edits": [{"op": "set_value", "name": "R1", "value": "160"}], "reason": "Corner at 10 kHz"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "rc.asc", "specs": "fc = bandwidth_3db(V(out)) in 9.5k..10.5k"}}]},
+  {"answer": "R1 is now 160 ohm, an E24 value. With C1 at 100 nF the corner is 1/(2 pi x 160 x 100n) = 9.95 kHz, and check_specs on ngspice confirms it."}
+]

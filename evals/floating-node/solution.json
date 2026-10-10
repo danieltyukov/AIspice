@@ -1,0 +1,6 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "divider.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "divider.asc", "edits": [{"op": "connect_to_net", "pin": "R2.B", "net": "0"}], "reason": "Ground the bottom of R2"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "divider.asc", "specs": "vmid = value_at(V(mid), 0) = 5 +- 0.05"}}]},
+  {"answer": "The bottom pin of R2 was not connected to anything, so no current flowed and mid sat at the full 10 V. I connected R2.B to ground; the operating point now gives V(mid) = 5 V."}
+]

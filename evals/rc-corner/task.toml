@@ -1,0 +1,17 @@
+id = "rc-corner"
+title = "Move an RC low-pass corner to 10 kHz"
+difficulty = "easy"
+prompt = """
+The RC low-pass filter in rc.asc has its -3 dB corner near 1.6 kHz. Change it so the corner is at 10 kHz, within 5%. Keep C1 at 100 nF and use a standard E24 value for the resistor.
+"""
+circuit = "rc.asc"
+analysis = ".ac dec 50 10 1Meg"
+specs = """
+fc = bandwidth_3db(V(out)) in 9.5k..10.5k
+"""
+max_steps = 8
+constraints = [
+  { kind = "value", name = "C1", equals = "100n" },
+  { kind = "e_series", prefix = "R", series = "E24" },
+  { kind = "max_parts", count = 3 },
+]

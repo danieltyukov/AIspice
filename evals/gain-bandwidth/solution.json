@@ -1,0 +1,22 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "amp.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "amp.asc", "edits": [
+    {"op": "disconnect", "pin": "U1.out"},
+    {"op": "remove_label", "label": "out"},
+    {"op": "connect_to_net", "pin": "U1.out", "net": "mid"},
+    {"op": "connect_to_net", "pin": "Rf.B", "net": "mid"},
+    {"op": "set_value", "name": "Rf", "value": "3.3k"},
+    {"op": "add_component", "symbol": "OpAmps/opamp", "name": "U2", "near": "U1", "attrs": {"SpiceLine2": "GBW=1Meg"}},
+    {"op": "add_component", "symbol": "res", "name": "Rf2", "value": "3.6k", "orient": "R90", "near": "U2"},
+    {"op": "add_component", "symbol": "res", "name": "Rg2", "value": "1k", "near": "U2"},
+    {"op": "connect_to_net", "pin": "U2.noninvin", "net": "mid"},
+    {"op": "connect_to_net", "pin": "U2.out", "net": "out"},
+    {"op": "connect_to_net", "pin": "Rf2.B", "net": "out"},
+    {"op": "connect_to_net", "pin": "Rf2.A", "net": "fb2"},
+    {"op": "connect_to_net", "pin": "U2.invin", "net": "fb2"},
+    {"op": "connect_to_net", "pin": "Rg2.A", "net": "fb2"},
+    {"op": "connect_to_net", "pin": "Rg2.B", "net": "0"}
+  ], "reason": "Split the gain over two stages"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "amp.asc", "specs": "gain = gain_db_at(V(out)/V(in), 1k) = 26 +- 0.5\nbw = bandwidth_3db(V(out)) >= 100k"}}]},
+  {"answer": "One stage with gain 20 on a 1 MHz op-amp can only reach about 50 kHz. I split the gain over two non-inverting stages: U1 with Rf = 3.3 kOhm and Rg = 1 kOhm (gain 4.3) and a new U2 with GBW=1Meg, Rf2 = 3.6 kOhm and Rg2 = 1 kOhm (gain 4.6). Together that is 19.8 (25.9 dB), and each stage has over 200 kHz of bandwidth, so the cascade reaches well above 100 kHz."}
+]

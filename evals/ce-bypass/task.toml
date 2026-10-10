@@ -1,0 +1,20 @@
+id = "ce-bypass"
+title = "Add the missing emitter bypass capacitor"
+difficulty = "medium"
+prompt = """
+The common-emitter amplifier in ce.asc has a voltage gain of only about 4.5 because the emitter resistor Re is not bypassed. Add a bypass capacitor across Re so the gain from in to out at 1 kHz is at least 30 dB. Do not change the bias resistors.
+"""
+circuit = "ce.asc"
+analysis = ".ac dec 20 10 1Meg"
+specs = """
+gain = gain_db_at(V(out)/V(in), 1k) >= 30
+"""
+max_steps = 10
+constraints = [
+  { kind = "value", name = "R1", equals = "47k" },
+  { kind = "value", name = "R2", equals = "10k" },
+  { kind = "value", name = "Rc", equals = "4.7k" },
+  { kind = "value", name = "Re", equals = "1k" },
+  { kind = "part_count", prefix = "C", min = 2 },
+  { kind = "max_parts", count = 9 },
+]

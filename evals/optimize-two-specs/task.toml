@@ -1,0 +1,19 @@
+id = "optimize-two-specs"
+title = "Size two resistors for attenuation and corner with optimize"
+difficulty = "medium"
+prompt = """
+In shelf.asc, R1 and R2 set both the low-frequency attenuation and, together with C1, the corner frequency. Use the optimize tool to choose E24 values for R1 and R2 so the gain at 10 Hz is -12 dB within 0.3 dB and the -3 dB corner is 5 kHz within 4%, and apply them to the schematic. Keep C1 at 10 nF.
+"""
+circuit = "shelf.asc"
+analysis = ".ac dec 50 10 1Meg"
+specs = """
+dc = gain_db_at(V(out)/V(in), 10) = -12 +- 0.3
+fc = bandwidth_3db(V(out)) in 4.8k..5.2k
+"""
+max_steps = 10
+constraints = [
+  { kind = "tool_called", name = "optimize" },
+  { kind = "e_series", prefix = "R", series = "E24" },
+  { kind = "value", name = "C1", equals = "10n" },
+  { kind = "max_parts", count = 4 },
+]

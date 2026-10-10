@@ -1,6 +1,7 @@
 //! `aispice`: the command-line face of aispice, and its MCP server.
 
 mod cmd_agent;
+mod cmd_eval;
 mod cmd_files;
 mod cmd_sim;
 mod mcp;
@@ -101,6 +102,42 @@ enum Command {
         #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
     },
+    /// Run the design task suite against one or more models and report the
+    /// pass rate per model. Exit code 0 whatever the results, unless
+    /// --min-pass-rate is not met.
+    Eval {
+        /// Folder of tasks (see evals/README.md).
+        #[arg(long, default_value = "evals", value_name = "DIR")]
+        suite: PathBuf,
+        /// Run only these tasks, by id.
+        #[arg(long = "task", value_name = "ID", num_args = 1..)]
+        tasks: Vec<String>,
+        /// anthropic, openai, google, openrouter, ollama or a configured one.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Models to evaluate, one or more.
+        #[arg(long = "model", value_name = "MODEL", num_args = 1..)]
+        models: Vec<String>,
+        /// Runs of each task per model.
+        #[arg(long, default_value_t = 1)]
+        repeat: u32,
+        /// Task runs in flight at once for one model.
+        #[arg(long, default_value_t = 1)]
+        jobs: usize,
+        /// Also write the full report as JSON to this file.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Exit with code 1 when a model's pass rate is below this fraction
+        /// (0 to 1), for CI.
+        #[arg(long, value_name = "FRACTION")]
+        min_pass_rate: Option<f64>,
+        /// Send at most this many model requests per minute (free tiers).
+        #[arg(long, value_name = "N")]
+        rpm: Option<f64>,
+        /// Time limit for one task run, in seconds.
+        #[arg(long, default_value_t = 900, value_name = "SECONDS")]
+        timeout: u64,
+    },
     /// Check simulators, LTspice's library and model provider keys.
     Doctor,
     /// Manage model provider API keys (kept in the OS keychain).
@@ -198,6 +235,31 @@ fn run(cli: Cli) -> Result<ExitCode> {
             rt.block_on(mcp::serve(&dir, &cli.symbols))?;
             Ok(ExitCode::SUCCESS)
         }
+        Command::Eval {
+            suite,
+            tasks,
+            provider,
+            models,
+            repeat,
+            jobs,
+            out,
+            min_pass_rate,
+            rpm,
+            timeout,
+        } => cmd_eval::eval(cmd_eval::EvalArgs {
+            suite,
+            tasks,
+            provider,
+            models,
+            repeat,
+            jobs,
+            out,
+            min_pass_rate,
+            rpm,
+            timeout,
+            symbols: cli.symbols,
+            json: cli.json,
+        }),
         Command::Doctor => cmd_agent::doctor(cli.json),
         Command::Keys { action } => match action {
             KeysAction::Set { provider } => cmd_agent::keys_set(&provider),

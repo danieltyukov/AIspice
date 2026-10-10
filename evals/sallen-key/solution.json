@@ -1,0 +1,11 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "sk.asc"}}]},
+  {"tools": [{"name": "edit_schematic", "input": {"circuit": "sk.asc", "edits": [
+    {"op": "set_value", "name": "R1", "value": "10k"},
+    {"op": "set_value", "name": "R2", "value": "10k"},
+    {"op": "set_value", "name": "C1", "value": "22n"},
+    {"op": "set_value", "name": "C2", "value": "11n"}
+  ], "reason": "Butterworth at 1 kHz"}}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "sk.asc", "specs": "fc = bandwidth_3db(V(out)) in 950..1050\nflat = peak_gain(V(out)) <= 0.2\nstop = gain_db_at(V(out), 10k) <= -37\ndc = gain_db_at(V(out), 10) in -0.1..0.1"}}]},
+  {"answer": "For a unity-gain Sallen-Key with equal resistors, Q = 0.5 sqrt(C1/C2) and f0 = 1/(2 pi R sqrt(C1 C2)). Q = 0.707 needs C1 = 2 C2. With R1 = R2 = 10 kOhm, C1 = 22 nF (feedback) and C2 = 11 nF (to ground) give Q = 0.707 and f0 = 1.02 kHz; for Butterworth the -3 dB point equals f0. The response is flat and falls 40 dB per decade."}
+]

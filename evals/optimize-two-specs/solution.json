@@ -1,0 +1,15 @@
+[
+  {"tools": [{"name": "read_schematic", "input": {"circuit": "shelf.asc"}}]},
+  {"tools": [{"name": "optimize", "input": {
+    "circuit": "shelf.asc",
+    "params": [
+      {"name": "R1", "min": "1k", "max": "100k", "snap": "E24"},
+      {"name": "R2", "min": "1k", "max": "100k", "snap": "E24"}
+    ],
+    "specs": "dc = gain_db_at(V(out)/V(in), 10) = -12 +- 0.3\nfc = bandwidth_3db(V(out)) in 4.8k..5.2k",
+    "apply": true,
+    "max_evals": 150
+  }}]},
+  {"tools": [{"name": "check_specs", "input": {"circuit": "shelf.asc"}}]},
+  {"answer": "optimize sized R1 and R2 to E24 values that meet both specs and applied them: the gain at 10 Hz is about -12 dB and the corner is near 5 kHz, as the final check_specs run on ngspice shows."}
+]
