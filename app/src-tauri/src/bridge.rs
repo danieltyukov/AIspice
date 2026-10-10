@@ -96,7 +96,14 @@ pub async fn send(
     let mut assistant_parts: Vec<Value> = Vec::new();
     let mut error: Option<String> = None;
 
-    let provider = match build_provider(&provider_id, &cfg, &state.keys) {
+    // Building a provider reads its key from the keychain, which blocks.
+    let built = {
+        let (id, cfg, keys) = (provider_id.clone(), cfg.clone(), state.keys.clone());
+        tokio::task::spawn_blocking(move || build_provider(&id, &cfg, &keys))
+            .await
+            .map_err(|e| e.to_string())?
+    };
+    let provider = match built {
         Ok(p) => Some(p),
         Err(e) => {
             error = Some(e.to_string());

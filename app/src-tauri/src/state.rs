@@ -13,7 +13,8 @@ pub struct AppState {
     pub ws: Arc<Workspace>,
     pub config: RwLock<Config>,
     pub prefs: RwLock<AppPrefs>,
-    pub keys: KeyStore,
+    /// Shared so keychain calls, which block, can run off the async runtime.
+    pub keys: Arc<KeyStore>,
     /// Running agent turns, by session id, so Stop can cancel them.
     pub running: Mutex<HashMap<String, CancellationToken>>,
     /// Edits waiting for the user in ask-before-apply mode.
@@ -38,7 +39,7 @@ impl AppState {
             ws: Arc::new(ws),
             config: RwLock::new(config),
             prefs: RwLock::new(AppPrefs::load()),
-            keys,
+            keys: Arc::new(keys),
             running: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             watcher: Mutex::new(None),

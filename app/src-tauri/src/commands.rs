@@ -5,6 +5,7 @@
 
 use crate::settings::{self, UiSettings};
 use crate::state::AppState;
+use aispice_agent::KeyStore;
 use aispice_core::render::{Highlight, RenderOptions, render_svg};
 use aispice_core::summary::summarize;
 use aispice_tools::RunMods;
@@ -12,6 +13,7 @@ use aispice_tools::tools::{run_view, specs_file};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 type Res<T> = Result<T, String>;
@@ -25,24 +27,7 @@ pub const EVENT: &str = "aispice://event";
 #[tauri::command]
 pub async fn doctor(state: State<'_, AppState>) -> Res<Value> {
     let sims = state.ws.runner.detect().await;
-    let providers: Vec<Value> = ["anthropic", "openai", "google", "openrouter", "ollama"]
-        .iter()
-        .map(|id| {
-            let source = state.keys.source(id).ok().flatten().map(|s| {
-                let text = s.to_string();
-                if text.starts_with("env")
-                    || matches!(s, aispice_agent::keys::KeySource::Env { .. })
-                {
-                    "env"
-                } else if text.to_ascii_lowercase().contains("keychain") {
-                    "keychain"
-                } else {
-                    "file"
-                }
-            });
-            json!({"id": id, "configured": *id == "ollama" || source.is_some(), "source": source})
-        })
-        .collect();
+    let providers = provider_status(state.keys.clone()).await;
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "platform": std::env::consts::OS,
@@ -50,6 +35,37 @@ pub async fn doctor(state: State<'_, AppState>) -> Res<Value> {
         "providers": providers,
         "ltspice_lib": state.ws.runner.ltspice_lib_dirs().first().map(|p| p.display().to_string()),
     }))
+}
+
+/// Which providers have a key, and where it comes from. The keychain is
+/// reached over D-Bus or a system API and can stall (a locked keyring, no
+/// Secret Service), so the lookup runs off the async runtime with a time
+/// limit, and a stalled keychain reads as "no key" rather than a hung window.
+async fn provider_status(keys: Arc<KeyStore>) -> Vec<Value> {
+    const IDS: [&str; 5] = ["anthropic", "openai", "google", "openrouter", "ollama"];
+    let lookup = tokio::task::spawn_blocking(move || {
+        IDS.iter()
+            .map(|id| {
+                let source = keys.source(id).ok().flatten().map(|s| {
+                    if matches!(s, aispice_agent::keys::KeySource::Env { .. }) {
+                        "env"
+                    } else if s.to_string().to_ascii_lowercase().contains("keychain") {
+                        "keychain"
+                    } else {
+                        "file"
+                    }
+                });
+                json!({"id": id, "configured": *id == "ollama" || source.is_some(), "source": source})
+            })
+            .collect::<Vec<_>>()
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(5), lookup).await {
+        Ok(Ok(list)) => list,
+        _ => IDS
+            .iter()
+            .map(|id| json!({"id": id, "configured": *id == "ollama", "source": null}))
+            .collect(),
+    }
 }
 
 fn circuits_json(state: &AppState) -> Res<Vec<Value>> {
@@ -339,23 +355,37 @@ pub fn save_settings(settings: UiSettings, state: State<'_, AppState>) -> Res<()
 
 #[tauri::command]
 pub async fn key_status(state: State<'_, AppState>) -> Res<Value> {
-    Ok(doctor(state).await?["providers"].clone())
+    Ok(Value::Array(provider_status(state.keys.clone()).await))
 }
 
 #[tauri::command]
-pub fn set_key(provider: String, key: String, state: State<'_, AppState>) -> Res<()> {
-    state.keys.set(&provider, &key).map(|_| ()).map_err(err)
+pub async fn set_key(provider: String, key: String, state: State<'_, AppState>) -> Res<()> {
+    let keys = state.keys.clone();
+    tokio::task::spawn_blocking(move || keys.set(&provider, &key).map(|_| ()))
+        .await
+        .map_err(err)?
+        .map_err(err)
 }
 
 #[tauri::command]
-pub fn remove_key(provider: String, state: State<'_, AppState>) -> Res<()> {
-    state.keys.remove(&provider).map(|_| ()).map_err(err)
+pub async fn remove_key(provider: String, state: State<'_, AppState>) -> Res<()> {
+    let keys = state.keys.clone();
+    tokio::task::spawn_blocking(move || keys.remove(&provider).map(|_| ()))
+        .await
+        .map_err(err)?
+        .map_err(err)
 }
 
 #[tauri::command]
 pub async fn models(provider: String, state: State<'_, AppState>) -> Res<Value> {
     let cfg = state.config.read().map_err(err)?.clone();
-    let p = aispice_agent::providers::build_provider(&provider, &cfg, &state.keys).map_err(err)?;
+    let keys = state.keys.clone();
+    let p = tokio::task::spawn_blocking(move || {
+        aispice_agent::providers::build_provider(&provider, &cfg, &keys)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)?;
     let list = p.list_models().await.map_err(err)?;
     serde_json::to_value(list).map_err(err)
 }
