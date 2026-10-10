@@ -252,26 +252,62 @@ fn run_text(run: &StoredRun, measured: &[MeasureResult]) -> String {
     t
 }
 
+/// The run a measurement, plot or table reads. A run named by id is used
+/// as it is, with a note when the circuit has changed since. Otherwise the
+/// circuit's latest run is used while it still matches the circuit; when
+/// the circuit changed since that run, it is simulated again with the same
+/// analysis, so numbers never describe an older version of the circuit.
+/// Returns the run and a note for the answer.
 async fn fresh_or_given_run(
     ws: &Workspace,
     circuit: &str,
     run_id: Option<&str>,
     ctx: &ToolContext,
-) -> Result<Arc<StoredRun>, String> {
-    if let Some(id) = run_id {
-        return ws
-            .runner
-            .get(id)
-            .ok_or_else(|| format!("no run {id} (runs are kept for the session; simulate again)"));
-    }
-    if let Some(r) = ws.runner.latest(circuit) {
-        return Ok(r);
-    }
+) -> Result<(Arc<StoredRun>, Option<String>), String> {
     let p = ws.project().map_err(|e| e.to_string())?;
-    ws.runner
-        .run_circuit(&p, circuit, None, &RunMods::default(), &ctx.cancel)
-        .await
-        .map_err(|e| e.to_string())
+    let now = ws.runner.source_hash(&p, circuit).ok();
+    let changed = |r: &StoredRun| r.source.is_some() && now.is_some() && r.source != now;
+    if let Some(id) = run_id {
+        let run = ws.runner.get(id).ok_or_else(|| {
+            format!("no run {id} (runs are kept for the session; simulate again)")
+        })?;
+        let note = changed(&run).then(|| {
+            format!("{circuit} changed since run {id}; these numbers describe it as it was then. Leave out `run` to simulate it again.")
+        });
+        return Ok((run, note));
+    }
+    match ws.runner.latest(circuit) {
+        Some(r) if !changed(&r) => Ok((r, None)),
+        Some(stale) => {
+            let again = ws
+                .runner
+                .run_circuit(
+                    &p,
+                    circuit,
+                    Some(stale.simulator.name()),
+                    &stale.mods,
+                    &ctx.cancel,
+                )
+                .await
+                .map_err(|e| {
+                    format!(
+                        "{circuit} changed since run {}, and simulating it again failed: {e}",
+                        stale.id
+                    )
+                })?;
+            let note = format!(
+                "{circuit} changed since run {}; simulated it again as run {} with the same analysis.",
+                stale.id, again.id
+            );
+            Ok((again, Some(note)))
+        }
+        None => ws
+            .runner
+            .run_circuit(&p, circuit, None, &RunMods::default(), &ctx.cancel)
+            .await
+            .map(|r| (r, None))
+            .map_err(|e| e.to_string()),
+    }
 }
 
 macro_rules! input {
@@ -402,7 +438,8 @@ impl Tool for Simulate {
 pub struct MeasureInput {
     pub circuit: String,
     /// A run id from simulate. Default: the circuit's latest run, simulating
-    /// first if there is none.
+    /// first if there is none, or again (with that run's analysis) if the
+    /// circuit has changed since.
     #[serde(default)]
     pub run: Option<String>,
     pub measurements: Vec<String>,
@@ -418,7 +455,7 @@ impl Tool for MeasureTool {
         spec::<MeasureInput>(
             "measure",
             &format!(
-                "Take measurements on a simulation result without re-running it. {MEASURE_SYNTAX}"
+                "Take measurements on a simulation result without re-running it. Without a run id it uses the circuit's latest run, and simulates the circuit again (with that run's analysis) when the circuit has changed since, so numbers always describe the circuit as it is; the answer says when that happened. {MEASURE_SYNTAX}"
             ),
         )
     }
@@ -429,16 +466,17 @@ impl Tool for MeasureTool {
             Ok(m) => m,
             Err(e) => return ToolOutput::error(e),
         };
-        let run =
+        let (run, note) =
             match fresh_or_given_run(&self.ws, &input.circuit, input.run.as_deref(), ctx).await {
                 Ok(r) => r,
                 Err(e) => return ToolOutput::error(e),
             };
+        let note = note.map(|n| format!("note: {n}\n")).unwrap_or_default();
         let measured: Vec<MeasureResult> = measures
             .iter()
             .map(|(n, m)| measure(n, m, &run.output.datasets))
             .collect();
-        let mut t = format!("Measured run {} of {}:\n", run.id, run.circuit);
+        let mut t = format!("{note}Measured run {} of {}:\n", run.id, run.circuit);
         for m in &measured {
             t.push_str(&format!("  {}\n", m.display()));
         }
@@ -556,17 +594,18 @@ impl Tool for Plot {
     fn spec(&self) -> ToolSpec {
         spec::<PlotInput>(
             "plot",
-            "Plot waveforms from a simulation as an image: time-domain traces, or a Bode plot (magnitude in dB and phase) for AC data. Use it to look at behaviour; use measure for numbers.",
+            "Plot waveforms from a simulation as an image: time-domain traces, or a Bode plot (magnitude in dB and phase) for AC data. Use it to look at behaviour; use measure for numbers. Without a run id it uses the circuit's latest run, simulating again first if the circuit has changed since.",
         )
     }
 
     async fn call(&self, ctx: &ToolContext, input: Value) -> ToolOutput {
         let input: PlotInput = input!(input);
-        let run =
+        let (run, note) =
             match fresh_or_given_run(&self.ws, &input.circuit, input.run.as_deref(), ctx).await {
                 Ok(r) => r,
                 Err(e) => return ToolOutput::error(e),
             };
+        let note = note.map(|n| format!("note: {n}\n")).unwrap_or_default();
         let req = PlotRequest {
             traces: input.traces.clone(),
             title: input.title.clone(),
@@ -590,7 +629,7 @@ impl Tool for Plot {
         };
         match aispice_core::render::render_png(&svg, 1.0) {
             Ok(png) => ToolOutput::text(format!(
-                "Plot of {} from run {}",
+                "{note}Plot of {} from run {}",
                 input.traces.join(", "),
                 run.id
             ))
@@ -628,17 +667,18 @@ impl Tool for ReadWaveform {
     fn spec(&self) -> ToolSpec {
         spec::<WaveInput>(
             "read_waveform",
-            "Read sampled values of signals from a simulation as a table (evenly spaced over a range). For AC data values are magnitude in dB and phase in degrees.",
+            "Read sampled values of signals from a simulation as a table (evenly spaced over a range). For AC data values are magnitude in dB and phase in degrees. Without a run id it uses the circuit's latest run, simulating again first if the circuit has changed since.",
         )
     }
 
     async fn call(&self, ctx: &ToolContext, input: Value) -> ToolOutput {
         let input: WaveInput = input!(input);
-        let run =
+        let (run, note) =
             match fresh_or_given_run(&self.ws, &input.circuit, input.run.as_deref(), ctx).await {
                 Ok(r) => r,
                 Err(e) => return ToolOutput::error(e),
             };
+        let note = note.map(|n| format!("note: {n}\n")).unwrap_or_default();
         let Some(ds) = run.output.datasets.iter().find(|d| {
             input.signals.iter().all(|s| {
                 aispice_sim::expr::parse(s)
@@ -678,12 +718,12 @@ impl Tool for ReadWaveform {
                     .and_then(|e| e.eval_all(ds).ok())
             })
             .collect();
-        let mut t = (if axis.quantity == Quantity::Frequency {
+        let mut t = note;
+        t.push_str(if axis.quantity == Quantity::Frequency {
             "frequency"
         } else {
             axis.name.as_str()
-        })
-        .to_string();
+        });
         for s in &input.signals {
             t.push_str(&if ac {
                 format!("\t{s} dB\t{s} deg")

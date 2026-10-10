@@ -80,10 +80,16 @@ pub struct StoredRun {
     /// Translation and model notes worth telling the user.
     pub notes: Vec<String>,
     pub time: u64,
+    /// A hash of the circuit's netlist when the run was made (before any
+    /// run-only changes), to tell whether the circuit changed since. `None`
+    /// for runs not made from the circuit file as it is.
+    pub source: Option<u64>,
+    /// The run-only changes the run was made with, so it can be repeated.
+    pub mods: RunMods,
 }
 
 /// What to change for one run without touching the file.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RunMods {
     /// Replace every analysis directive with this one (`.ac dec 50 1 1Meg`).
     pub analysis: Option<String>,
@@ -244,6 +250,14 @@ impl Runner {
         }
     }
 
+    /// A hash of what a circuit simulates as now: its netlist, before any
+    /// run-only changes, and the standard libraries it relies on. Equal
+    /// hashes mean an earlier run still describes the circuit.
+    pub fn source_hash(&self, project: &Project, circuit: &str) -> Result<u64, RunError> {
+        let (netlist, std_libs, _) = self.netlist_for(project, circuit)?;
+        Ok(netlist_hash(&netlist, &std_libs))
+    }
+
     pub async fn run_circuit(
         &self,
         project: &Project,
@@ -253,18 +267,19 @@ impl Runner {
         cancel: &CancellationToken,
     ) -> Result<Arc<StoredRun>, RunError> {
         let (mut netlist, std_libs, warnings) = self.netlist_for(project, circuit)?;
+        let source = netlist_hash(&netlist, &std_libs);
         apply_mods(&mut netlist, mods);
         let run = self
             .run_netlist(project, circuit, &netlist, &std_libs, simulator, cancel)
             .await?;
-        if warnings.is_empty() {
-            return Ok(run);
-        }
-        // Netlisting warnings belong with the run's notes.
+        // Record what the run was made from, and put netlisting warnings
+        // with the run's notes.
         let mut notes = warnings;
         notes.extend(run.notes.iter().cloned());
         let run = Arc::new(StoredRun {
             notes,
+            source: Some(source),
+            mods: mods.clone(),
             ..Arc::try_unwrap(run).unwrap_or_else(|a| clone_run(&a))
         });
         self.remember(run.clone());
@@ -393,6 +408,8 @@ impl Runner {
             deck,
             notes,
             time: now_ms(),
+            source: None,
+            mods: RunMods::default(),
         });
         if remember {
             self.remember(run.clone());
@@ -475,7 +492,21 @@ fn clone_run(r: &StoredRun) -> StoredRun {
         deck: r.deck.clone(),
         notes: r.notes.clone(),
         time: r.time,
+        source: r.source,
+        mods: r.mods.clone(),
     }
+}
+
+/// See [`Runner::source_hash`].
+fn netlist_hash(netlist: &Netlist, std_libs: &[String]) -> u64 {
+    use std::hash::{DefaultHasher, Hasher};
+    let mut h = DefaultHasher::new();
+    h.write(netlist::write(netlist).as_bytes());
+    for l in std_libs {
+        h.write(l.as_bytes());
+        h.write_u8(0);
+    }
+    h.finish()
 }
 
 /// Apply run-only changes to a netlist.
