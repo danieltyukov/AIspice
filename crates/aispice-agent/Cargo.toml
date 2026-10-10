@@ -1,5 +1,6 @@
 [package]
 name = "aispice-agent"
+description = "The language model side of aispice: Anthropic and OpenAI-compatible providers, typed tools, the agent loop, configuration and API key storage."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,9 +8,34 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
+keywords = ["spice", "llm", "agent", "anthropic", "openai"]
+categories = ["science", "api-bindings"]
+
+[features]
+# Exposes `testing::ScriptedProvider` so other crates can drive the agent loop
+# in their own tests without a network.
+testing = []
 
 [dependencies]
-aispice-core.workspace = true
+async-trait = "0.1.89"
+base64.workspace = true
+dirs.workspace = true
+futures.workspace = true
+keyring.workspace = true
+reqwest.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util = "0.7.16"
+toml = "1.0.0"
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+wiremock = "0.6.3"
 
 [lints]
 workspace = true
