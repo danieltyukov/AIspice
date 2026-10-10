@@ -363,6 +363,29 @@ code {
   background: var(--surface);
 }
 
+/* Screenshots of the app in each theme, matched to the page's. */
+.shot .shot-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .shot .shot-light {
+    display: none;
+  }
+
+  :root:not([data-theme='light']) .shot .shot-dark {
+    display: block;
+  }
+}
+
+:root[data-theme='dark'] .shot .shot-light {
+  display: none;
+}
+
+:root[data-theme='dark'] .shot .shot-dark {
+  display: block;
+}
+
 /* Sections
    ------------------------------------------------------------------------- */
 
