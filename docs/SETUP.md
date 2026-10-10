@@ -125,6 +125,7 @@ model = "claude-opus-5-5"       # default model for that provider
 simulator = "auto"              # auto, ngspice, ltspice, xyce or spectre
 edit_mode = "apply"             # apply (with undo) or ask (approve each edit)
 # ltspice_path = "/home/me/.wine/drive_c/Program Files/ADI/LTspice/LTspice.exe"
+# embedded_models_only = true   # never use models or symbols from LTspice's library
 
 [agent]
 max_steps = 40                  # tool calls per request
@@ -136,6 +137,8 @@ base_url = "http://localhost:1234/v1"
 ```
 
 With `provider = "lmstudio"` (or `--provider lmstudio`) aispice talks to that endpoint.
+
+`embedded_models_only = true` makes results independent of the machine. Normally, when LTspice is installed, aispice offers its symbols and pulls the models a circuit names (a `2N3904`, a vendor op-amp) from LTspice's library when it runs ngspice, Xyce or Spectre, and switches to LTspice for a circuit ngspice cannot run. With this setting it uses only its own embedded models (the generic library behind `opamp`, `1N4148`, `2N3904` and the others) and the files in the project folder, never LTspice's symbols or models, and it does not switch simulators by itself. A run on LTspice chosen by name still reads LTspice's library, as LTspice always does. `aispice eval` always works this way.
 
 ## Using aispice from an MCP client
 

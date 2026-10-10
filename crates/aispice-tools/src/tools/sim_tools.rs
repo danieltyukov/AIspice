@@ -1630,7 +1630,7 @@ impl Tool for OperatingPoint {
         let resolved = aispice_sim::models::resolve_with(
             &netlist,
             &std_libs,
-            &self.ws.runner.ltspice_lib_dirs(),
+            &self.ws.runner.model_lib_dirs(),
         )
         .netlist;
         let found: Vec<(String, Option<oppoint::Located>)> =
