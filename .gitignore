@@ -26,3 +26,6 @@ examples/**/*.net
 # Desktop app: generated capability schemas and end-to-end screenshots
 app/src-tauri/gen/
 app/e2e-desktop/output/
+
+# Site: raw captures that site/tools/encode_renders.py encodes
+site/renders-src/

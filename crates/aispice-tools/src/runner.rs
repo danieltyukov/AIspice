@@ -46,6 +46,13 @@ pub struct RunnerConfig {
     pub spectre: Option<SpectreConfig>,
     pub allow_control_blocks: bool,
     pub timeout_secs: u64,
+    /// Use only aispice's embedded models and the project's own files: no
+    /// models or symbols from an installed LTspice library, and no automatic
+    /// switch to LTspice when ngspice cannot run a deck. Results then do not
+    /// depend on what is installed on the machine. A run on LTspice chosen
+    /// by name still reads LTspice's own library, as LTspice always does.
+    #[serde(default)]
+    pub embedded_models_only: bool,
 }
 
 impl Default for RunnerConfig {
@@ -56,6 +63,7 @@ impl Default for RunnerConfig {
             spectre: None,
             allow_control_blocks: false,
             timeout_secs: 300,
+            embedded_models_only: false,
         }
     }
 }
@@ -72,10 +80,16 @@ pub struct StoredRun {
     /// Translation and model notes worth telling the user.
     pub notes: Vec<String>,
     pub time: u64,
+    /// A hash of the circuit's netlist when the run was made (before any
+    /// run-only changes), to tell whether the circuit changed since. `None`
+    /// for runs not made from the circuit file as it is.
+    pub source: Option<u64>,
+    /// The run-only changes the run was made with, so it can be repeated.
+    pub mods: RunMods,
 }
 
 /// What to change for one run without touching the file.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RunMods {
     /// Replace every analysis directive with this one (`.ac dec 50 1 1Meg`).
     pub analysis: Option<String>,
@@ -138,12 +152,28 @@ impl Runner {
             .collect()
     }
 
-    /// The first LTspice symbol folder, for the symbol library.
+    /// The first LTspice symbol folder, for the symbol library. None with
+    /// `embedded_models_only`, since a vendor symbol would need a vendor
+    /// model that is then not used.
     pub fn ltspice_symbols(&self) -> Option<PathBuf> {
+        if self.config().embedded_models_only {
+            return None;
+        }
         self.ltspice_lib_dirs()
             .into_iter()
             .map(|d| d.join("sym"))
             .find(|d| d.is_dir())
+    }
+
+    /// The LTspice library folders models are resolved from: none with
+    /// `embedded_models_only`, so only aispice's embedded models and the
+    /// project's own files are used.
+    pub fn model_lib_dirs(&self) -> Vec<PathBuf> {
+        if self.config().embedded_models_only {
+            Vec::new()
+        } else {
+            self.ltspice_lib_dirs()
+        }
     }
 
     fn simulator(&self, id: SimId) -> Box<dyn Simulator> {
@@ -220,6 +250,14 @@ impl Runner {
         }
     }
 
+    /// A hash of what a circuit simulates as now: its netlist, before any
+    /// run-only changes, and the standard libraries it relies on. Equal
+    /// hashes mean an earlier run still describes the circuit.
+    pub fn source_hash(&self, project: &Project, circuit: &str) -> Result<u64, RunError> {
+        let (netlist, std_libs, _) = self.netlist_for(project, circuit)?;
+        Ok(netlist_hash(&netlist, &std_libs))
+    }
+
     pub async fn run_circuit(
         &self,
         project: &Project,
@@ -229,18 +267,19 @@ impl Runner {
         cancel: &CancellationToken,
     ) -> Result<Arc<StoredRun>, RunError> {
         let (mut netlist, std_libs, warnings) = self.netlist_for(project, circuit)?;
+        let source = netlist_hash(&netlist, &std_libs);
         apply_mods(&mut netlist, mods);
         let run = self
             .run_netlist(project, circuit, &netlist, &std_libs, simulator, cancel)
             .await?;
-        if warnings.is_empty() {
-            return Ok(run);
-        }
-        // Netlisting warnings belong with the run's notes.
+        // Record what the run was made from, and put netlisting warnings
+        // with the run's notes.
         let mut notes = warnings;
         notes.extend(run.notes.iter().cloned());
         let run = Arc::new(StoredRun {
             notes,
+            source: Some(source),
+            mods: mods.clone(),
             ..Arc::try_unwrap(run).unwrap_or_else(|a| clone_run(&a))
         });
         self.remember(run.clone());
@@ -276,12 +315,17 @@ impl Runner {
         remember: bool,
     ) -> Result<Arc<StoredRun>, RunError> {
         let mut id = self.choose(simulator).await?;
-        let lib_dirs = self.ltspice_lib_dirs();
+        let lib_dirs = self.model_lib_dirs();
         let mut notes = Vec::new();
         let mut text = self.deck_for(id, netlist, std_libs, &lib_dirs, &mut notes);
         if let Some(t) = &text.1 {
-            // ngspice or Xyce cannot run this deck; LTspice can, if present.
-            if simulator.is_none() && id != SimId::Ltspice && self.available(SimId::Ltspice).await {
+            // ngspice or Xyce cannot run this deck; LTspice can, if present
+            // and its library may be used.
+            if simulator.is_none()
+                && id != SimId::Ltspice
+                && !self.config().embedded_models_only
+                && self.available(SimId::Ltspice).await
+            {
                 notes.push(format!(
                     "{} cannot run this circuit ({t}); used LTspice instead",
                     id.name()
@@ -364,6 +408,8 @@ impl Runner {
             deck,
             notes,
             time: now_ms(),
+            source: None,
+            mods: RunMods::default(),
         });
         if remember {
             self.remember(run.clone());
@@ -446,7 +492,21 @@ fn clone_run(r: &StoredRun) -> StoredRun {
         deck: r.deck.clone(),
         notes: r.notes.clone(),
         time: r.time,
+        source: r.source,
+        mods: r.mods.clone(),
     }
+}
+
+/// See [`Runner::source_hash`].
+fn netlist_hash(netlist: &Netlist, std_libs: &[String]) -> u64 {
+    use std::hash::{DefaultHasher, Hasher};
+    let mut h = DefaultHasher::new();
+    h.write(netlist::write(netlist).as_bytes());
+    for l in std_libs {
+        h.write(l.as_bytes());
+        h.write_u8(0);
+    }
+    h.finish()
 }
 
 /// Apply run-only changes to a netlist.
@@ -590,6 +650,61 @@ mod tests {
             out.contains(&format!(".include \"{}\" extra", real.display())),
             "{out}"
         );
+    }
+
+    /// Was machine-dependent: a model the netlist names was pulled from an
+    /// installed LTspice library, with no way to turn that off. With
+    /// embedded_models_only the deck gets aispice's own models only.
+    #[test]
+    fn embedded_models_only_ignores_the_ltspice_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("LTspice.exe");
+        std::fs::write(&exe, "not really").unwrap();
+        std::fs::create_dir_all(dir.path().join("lib/sub")).unwrap();
+        std::fs::create_dir_all(dir.path().join("lib/sym")).unwrap();
+        std::fs::write(
+            dir.path().join("lib/sub/fakeamp.sub"),
+            ".subckt fakeamp a b c\nR1 a c 1k\n.ends fakeamp\n",
+        )
+        .unwrap();
+        let n = netlist::parse("t\nX1 a b c fakeamp\nX2 a b c opamp\n.op\n");
+        let lib = dir.path().join("lib");
+
+        let usual = Runner::new(RunnerConfig {
+            ltspice_exe: Some(exe.clone()),
+            ..RunnerConfig::default()
+        });
+        assert!(usual.model_lib_dirs().contains(&lib));
+        let mut notes = Vec::new();
+        let (deck, _) =
+            usual.deck_for(SimId::Ngspice, &n, &[], &usual.model_lib_dirs(), &mut notes);
+        assert!(
+            deck.to_ascii_lowercase().contains(".subckt fakeamp"),
+            "{deck}"
+        );
+
+        let strict = Runner::new(RunnerConfig {
+            ltspice_exe: Some(exe),
+            embedded_models_only: true,
+            ..RunnerConfig::default()
+        });
+        assert!(strict.model_lib_dirs().is_empty());
+        assert!(strict.ltspice_symbols().is_none());
+        let mut notes = Vec::new();
+        let (deck, _) = strict.deck_for(
+            SimId::Ngspice,
+            &n,
+            &[],
+            &strict.model_lib_dirs(),
+            &mut notes,
+        );
+        let lower = deck.to_ascii_lowercase();
+        assert!(!lower.contains(".subckt fakeamp"), "{deck}");
+        assert!(
+            lower.contains(".subckt opamp"),
+            "embedded models still come: {deck}"
+        );
+        assert!(notes.iter().any(|n| n.contains("fakeamp")), "{notes:?}");
     }
 
     #[test]

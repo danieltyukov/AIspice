@@ -157,6 +157,9 @@ pub async fn run_task(
     let ws = Workspace::new();
     ws.runner.set_config(RunnerConfig {
         simulator: opts.simulator.clone(),
+        // aispice's own models only, so results compare across machines
+        // whatever LTspice library is installed.
+        embedded_models_only: true,
         ..RunnerConfig::default()
     });
     // Built-in symbols only (plus --symbols), so results compare across

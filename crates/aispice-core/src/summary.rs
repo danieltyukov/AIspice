@@ -4,6 +4,7 @@
 
 use crate::geometry::{Orient, Point};
 use crate::lint::{Finding, lint};
+use crate::netlist::build::{effective_attr, subckt_call};
 use crate::netlist::spice::is_analysis;
 use crate::schematic::{Schematic, TextKind};
 use crate::symbol::SymbolLibrary;
@@ -21,8 +22,16 @@ pub struct PinInfo {
 pub struct ComponentInfo {
     pub name: String,
     pub symbol: String,
+    /// What set_value changes. For a part that calls a subcircuit (an
+    /// op-amp), this is the subcircuit's name, from the symbol when the
+    /// instance does not set it.
     pub value: Option<String>,
-    /// Other attributes set on the instance (Value2, SpiceLine, SpiceModel...).
+    /// SpiceLine and SpiceLine2 as they reach the netlist (the instance's,
+    /// else the symbol's defaults): parameters such as `GBW=10Meg` or
+    /// `AC 1`, changed with set_attr.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+    /// Other attributes set on the instance (Value2, SpiceModel...).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub attrs: BTreeMap<String, String>,
     pub at: Point,
@@ -71,18 +80,37 @@ pub fn summarize(sch: &Schematic, lib: &SymbolLibrary) -> SchematicSummary {
                     .collect()
             })
             .unwrap_or_default();
+        let is_param =
+            |k: &str| k.eq_ignore_ascii_case("SpiceLine") || k.eq_ignore_ascii_case("SpiceLine2");
         let attrs = sym
             .attrs
             .iter()
             .filter(|a| {
-                !a.key.eq_ignore_ascii_case("InstName") && !a.key.eq_ignore_ascii_case("Value")
+                !a.key.eq_ignore_ascii_case("InstName")
+                    && !a.key.eq_ignore_ascii_case("Value")
+                    && !is_param(&a.key)
             })
             .map(|a| (a.key.clone(), a.value.clone()))
             .collect();
+        let mut params = BTreeMap::new();
+        let mut value = sym.value().map(str::to_string);
+        if let Some(def) = &p.def {
+            for key in ["SpiceLine", "SpiceLine2"] {
+                if let Some(v) = effective_attr(sym, def, key) {
+                    params.insert(key.to_string(), v.to_string());
+                }
+            }
+            // A subcircuit call's value is the subcircuit's name, which the
+            // symbol supplies when the instance does not.
+            if value.is_none() && subckt_call(sym, def).is_some() {
+                value = effective_attr(sym, def, "Value").map(str::to_string);
+            }
+        }
         components.push(ComponentInfo {
             name: p.inst.clone(),
             symbol: sym.name.clone(),
-            value: sym.value().map(str::to_string),
+            value,
+            params,
             attrs,
             at: sym.at,
             orient: sym.orient,
@@ -147,14 +175,11 @@ impl SchematicSummary {
             .unwrap_or(3)
             .max(3);
         for c in &self.components {
+            // The value column is what set_value changes; bracketed entries
+            // are attributes, changed with set_attr.
             let mut value = c.value.clone().unwrap_or_default();
-            for (k, v) in &c.attrs {
-                if k.starts_with("SpiceLine") || k == "Value2" {
-                    value.push(' ');
-                    value.push_str(v);
-                } else {
-                    let _ = write!(value, " [{k}={v}]");
-                }
+            for (k, v) in c.params.iter().chain(&c.attrs) {
+                let _ = write!(value, " [{k}: {v}]");
             }
             let pins: Vec<String> = c
                 .pins
@@ -216,11 +241,32 @@ mod tests {
         assert_eq!(s.analysis.as_deref(), Some(".ac dec 20 10 100k"));
         let text = s.to_text();
         assert!(
-            text.contains("V1  voltage  SINE(0 1 1k) AC 1  (+:N001 -:0)"),
+            text.contains("V1  voltage  SINE(0 1 1k) [SpiceLine: AC 1]  (+:N001 -:0)"),
             "{text}"
         );
         assert!(text.contains("R1  res      1k  (A:out B:N001)"), "{text}");
         assert!(text.contains("out [label]: R1.A, C1.A"), "{text}");
         assert!(text.contains("Checks: no problems found."), "{text}");
+    }
+
+    /// Was a trap: the op-amp's SpiceLine2 (`GBW=1Meg`) showed in the value
+    /// column, so models called set_value with it and replaced the
+    /// subcircuit name. The value is the subcircuit name; parameters are
+    /// listed apart, as attributes.
+    #[test]
+    fn opamp_value_is_its_subckt_and_params_are_apart() {
+        let src = "Version 4\nSHEET 1 880 680\nFLAG 192 96 fb\nFLAG 192 128 in\nFLAG 256 112 out\nSYMBOL OpAmps/opamp 224 48 R0\nSYMATTR InstName U1\nSYMATTR SpiceLine2 GBW=1Meg\nTEXT 0 232 Left 2 !.op\n";
+        let (sch, _) = parse(src);
+        let s = summarize(&sch, &SymbolLibrary::builtin_only());
+        let u1 = &s.components[0];
+        assert_eq!(u1.value.as_deref(), Some("opamp"));
+        assert_eq!(u1.params["SpiceLine"], "Aol=100K");
+        assert_eq!(u1.params["SpiceLine2"], "GBW=1Meg");
+        assert!(u1.attrs.is_empty(), "{:?}", u1.attrs);
+        let text = s.to_text();
+        assert!(
+            text.contains("U1  OpAmps/opamp  opamp [SpiceLine: Aol=100K] [SpiceLine2: GBW=1Meg]  (invin:fb noninvin:in out:out)"),
+            "{text}"
+        );
     }
 }

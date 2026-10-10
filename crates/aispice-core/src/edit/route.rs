@@ -27,17 +27,40 @@ use std::collections::HashMap;
 pub enum Route {
     AlreadyConnected,
     Wires(Vec<Wire>),
-    Labels { label: String, items: Vec<Item> },
+    Labels {
+        label: String,
+        items: Vec<Item>,
+    },
+    /// Neither wires nor labels could join the pins without touching another
+    /// net; the schematic is unchanged.
+    Failed,
 }
 
 type PinKey = (String, String);
 
-/// Net index of every pin, keyed by upper-cased instance and pin name.
+/// The instance part of the key under which a net label is recorded in a
+/// partition. No instance name can contain a control character.
+const LABEL_KEY: &str = "\u{1}label";
+
+/// The partition key of a net label.
+pub(crate) fn label_key(label: &str) -> PinKey {
+    (LABEL_KEY.to_string(), label.to_ascii_uppercase())
+}
+
+/// Net index of every pin, keyed by upper-cased instance and pin name, and
+/// of every net label (see [`label_key`]). Labels count as members so that
+/// a route which runs into a label with no pins on it (a stray or leftover
+/// label) is seen to join that net too.
 pub(crate) fn pin_partition(conn: &Connectivity) -> HashMap<PinKey, usize> {
     let mut map = HashMap::new();
     for (inst, pins) in &conn.pin_nets {
         for (pin, net) in pins {
             map.insert((inst.clone(), pin.to_ascii_uppercase()), *net);
+        }
+    }
+    for (i, net) in conn.nets.iter().enumerate() {
+        for l in &net.labels {
+            map.insert(label_key(l), i);
         }
     }
     map
@@ -564,17 +587,14 @@ impl Router<'_> {
                 return Route::Labels { label, items };
             }
         }
-        // Unreachable in practice: a label placed exactly on each pin joins
-        // only those pins' nets. Keep the schematic unchanged if it ever fails.
-        Route::Labels {
-            label,
-            items: Vec::new(),
-        }
+        // Rare: a label placed exactly on each pin joins only those pins'
+        // nets. If even that fails, the schematic is left unchanged.
+        Route::Failed
     }
 }
 
 /// A label not used anywhere in the schematic yet.
-pub(crate) fn unique_label(conn: &Connectivity, hint: &str) -> String {
+fn unique_label(conn: &Connectivity, hint: &str) -> String {
     let base: String = hint
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_')

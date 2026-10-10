@@ -295,3 +295,95 @@ async fn create_schematic_asks_for_approval() {
     assert!(text_of(&out).contains("declined"), "{}", text_of(&out));
     assert!(!dir.path().join("rc.asc").exists());
 }
+
+/// Was a gap: an operation that could not do what it was asked came back as
+/// a note while the rest of the edit was saved. Now nothing is saved and the
+/// error names the edit by its position and op.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failing_operation_saves_nothing() {
+    let (dir, ws) = workspace();
+    let netlist = "* amp\nV1 in 0 AC 1\nR1 in fb 1k\nR2 fb 0 1k\nR3 out 0 1k\n.op\n";
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "a.asc", "netlist": netlist}),
+    )
+    .await;
+    assert!(!out.is_error, "{}", text_of(&out));
+    let before = std::fs::read(dir.path().join("a.asc")).unwrap();
+    let out = call(
+        &ws,
+        "edit_schematic",
+        json!({"circuit": "a.asc", "edits": [
+            {"op": "set_value", "name": "R3", "value": "2k"},
+            {"op": "connect_to_net", "pin": "R2.A", "net": "out"}
+        ]}),
+    )
+    .await;
+    let text = text_of(&out);
+    assert!(out.is_error, "{text}");
+    assert!(
+        text.contains("No changes made. edit 1 (connect_to_net):"),
+        "{text}"
+    );
+    assert_eq!(std::fs::read(dir.path().join("a.asc")).unwrap(), before);
+}
+
+/// Was a gap: a schema mistake in one edit gave serde's bare message
+/// ("missing field `net`") with no word on which edit had it.
+#[tokio::test(flavor = "multi_thread")]
+async fn schema_mistakes_name_the_edit_and_its_fields() {
+    let (dir, ws) = workspace();
+    let out = call(
+        &ws,
+        "create_schematic",
+        json!({"circuit": "a.asc", "netlist": "* a\nV1 in 0 1\nR1 in out 1k\nR2 out 0 1k\n.op\n"}),
+    )
+    .await;
+    assert!(!out.is_error, "{}", text_of(&out));
+    let before = std::fs::read(dir.path().join("a.asc")).unwrap();
+    for (edits, want) in [
+        (
+            json!([{"op": "set_value", "name": "R1", "value": "2k"}, {"op": "connect_to_net", "pin": "R2.A"}]),
+            "edit 1 (connect_to_net): missing field `net`; this op takes {pin, net}",
+        ),
+        (
+            json!([{"op": "add_label", "label": "x"}]),
+            "edit 0 (add_label): missing field `at`; this op takes {at: [x, y], label}",
+        ),
+        (
+            json!([{"op": "remove_wire", "name": "R1", "to": "out"}]),
+            "edit 0 (remove_wire): ",
+        ),
+        (
+            json!([{"op": "connect_pin", "from": "R1.A", "to": "R2.B"}]),
+            "edit 0 (connect_pin): unknown op",
+        ),
+        (json!([{"name": "R1", "value": "1k"}]), "edit 0: no `op`"),
+    ] {
+        let out = call(
+            &ws,
+            "edit_schematic",
+            json!({"circuit": "a.asc", "edits": edits}),
+        )
+        .await;
+        let text = text_of(&out);
+        assert!(out.is_error, "{text}");
+        assert!(text.contains(want), "want `{want}` in: {text}");
+    }
+    assert_eq!(std::fs::read(dir.path().join("a.asc")).unwrap(), before);
+    // The common harmless alias: `to` for `net` in connect_to_net, and a
+    // number for a value.
+    let out = call(
+        &ws,
+        "edit_schematic",
+        json!({"circuit": "a.asc", "edits": [
+            {"op": "connect_to_net", "pin": "R2.B", "to": "0"},
+            {"op": "set_value", "name": "R2", "value": 2200}
+        ]}),
+    )
+    .await;
+    assert!(!out.is_error, "{}", text_of(&out));
+    let out = call(&ws, "netlist", json!({"circuit": "a.asc"})).await;
+    assert!(text_of(&out).contains("R2 out 0 2200"), "{}", text_of(&out));
+}
