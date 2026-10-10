@@ -10,6 +10,7 @@ pub mod models;
 pub mod montecarlo;
 pub mod optimize;
 pub mod plot;
+pub mod polezero;
 pub mod raw;
 pub mod spec;
 pub mod sweep;

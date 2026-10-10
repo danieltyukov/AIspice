@@ -16,7 +16,7 @@ ltspice="${LTSPICE_EXE:-$HOME/.wine/drive_c/Program Files/LTC/LTspiceXVII/XVIIx6
 
 # ngspice: binary raw, ASCII raw for the multi-plot deck, stdout for logs.
 mkdir -p "$here/ngspice" "$work/ng"
-for d in rc_tran rc_ac div_op div_dc multi; do
+for d in rc_tran rc_ac div_op div_dc multi rlc_pz lead_pz; do
     cp "$decks/$d.cir" "$work/ng/"
     (cd "$work/ng" && ngspice -b -r "$d.raw" "$d.cir" >/dev/null 2>&1)
     cp "$work/ng/$d.raw" "$here/ngspice/"

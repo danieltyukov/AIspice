@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatToolCall, ToolData } from "../../ipc/types";
-import { duration } from "../../lib/format";
+import { duration, eng } from "../../lib/format";
 import { sanitizeSvgElement } from "../../lib/sanitizeSvg";
 import { useStore, useStoreApi } from "../../store/context";
 import { SpecTable } from "../SpecTable";
@@ -206,6 +206,27 @@ function DataDetails({ data }: { data: ToolData }) {
       );
     case "montecarlo":
       return <pre className="tool-text">{data.report}</pre>;
+    case "poles_zeros": {
+      const roots = [
+        ...data.poles.map((r, i) => ({ label: `p${i + 1}`, r })),
+        ...data.zeros.map((r, i) => ({ label: `z${i + 1}`, r })),
+      ];
+      if (roots.length === 0) return <p className="panel-note">No finite poles or zeros.</p>;
+      return (
+        <dl className="tool-kv">
+          {roots.map(({ label, r }) => (
+            <div key={label}>
+              <dt className="mono">{label}</dt>
+              <dd className="mono">
+                {eng(r.re_hz, "Hz")}
+                {r.im_hz !== 0 ? ` ${r.im_hz < 0 ? "-" : "+"} j${eng(Math.abs(r.im_hz), "Hz")}` : ""}
+                {r.q !== null ? `, Q ${r.q.toPrecision(4)}` : ""}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      );
+    }
     case "generic":
       return <pre className="tool-text">{JSON.stringify(data.value, null, 2)?.slice(0, 4000)}</pre>;
   }

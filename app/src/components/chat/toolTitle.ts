@@ -87,6 +87,11 @@ export function toolTitle(call: ChatToolCall, streaming: boolean): { title: stri
       return { title: `Optimized in ${plural(data.evaluations, "evaluation")}`, tone: "done" };
     case "montecarlo":
       return { title: `Ran ${data.runs} Monte Carlo runs: ${data.yield_pct.toFixed(1)}% yield`, tone: "done" };
+    case "poles_zeros":
+      return {
+        title: `${data.stable ? "Stable" : "Not stable"}: ${plural(data.poles.length, "pole")}, ${plural(data.zeros.length, "zero")}`,
+        tone: "done",
+      };
     default:
       break;
   }

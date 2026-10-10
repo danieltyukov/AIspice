@@ -612,7 +612,7 @@ pub fn human(v: f64, unit: &str) -> String {
 }
 
 /// Four significant digits, trailing zeros removed.
-fn plain(v: f64) -> String {
+pub(crate) fn plain(v: f64) -> String {
     if v == 0.0 {
         return "0".into();
     }
@@ -663,6 +663,7 @@ fn kind_name(k: AnalysisKind) -> &'static str {
         AnalysisKind::Op => "operating point",
         AnalysisKind::Noise => "noise",
         AnalysisKind::TransferFunction => "transfer function",
+        AnalysisKind::PoleZero => "pole-zero",
         AnalysisKind::Other => "other",
     }
 }

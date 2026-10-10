@@ -1,0 +1,8 @@
+RLC pole-zero
+* R=100, L=10m, C=100n: f0 = 1/(2 pi sqrt(LC)) = 5032.9 Hz, Q = sqrt(L/C)/R = 3.162.
+V1 in 0 AC 1
+R1 in a 100
+L1 a out 10m
+C1 out 0 100n
+.pz in 0 out 0 vol pz
+.end

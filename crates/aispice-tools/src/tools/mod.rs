@@ -34,6 +34,7 @@ pub fn registry(ws: Arc<Workspace>) -> Registry {
     r.register(CheckSpecs { ws: ws.clone() });
     r.register(Plot { ws: ws.clone() });
     r.register(ReadWaveform { ws: ws.clone() });
+    r.register(PolesZeros { ws: ws.clone() });
     r.register(Sweep { ws: ws.clone() });
     r.register(MonteCarlo { ws: ws.clone() });
     r.register(Optimize { ws });

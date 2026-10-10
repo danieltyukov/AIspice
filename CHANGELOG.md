@@ -4,6 +4,10 @@ All notable changes to aispice are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- `poles_zeros` tool: pole-zero analysis of a transfer function on ngspice's `.pz`, with f0 and Q for each complex pair, the corner of each real root, and a stability verdict.
+
 ## [0.2.0]
 
 A rewrite. aispice is now one Rust engine with three front ends: a desktop app, a command line tool and an MCP server.

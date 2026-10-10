@@ -737,6 +737,80 @@ Read sampled values of signals from a simulation as a table (evenly spaced over 
 
 </details>
 
+## `poles_zeros`
+
+Pole-zero analysis of a transfer function with ngspice's .pz: the poles and zeros of V(output)/V(input), or V(output)/I(input) with transfer `cur`, in Hz, with f0, Q and damping ratio for each complex pair and the corner of each real root, and whether the circuit is stable (any pole in the right half-plane means it is not). Nonlinear parts are linearised at the operating point, as in an AC analysis. The circuit's own analyses, .meas, .step and .save lines are left out of this run, and the file is not changed. Needs ngspice: LTspice and Xyce have no .pz analysis.
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "properties": {
+    "circuit": {
+      "type": "string"
+    },
+    "input": {
+      "description": "Positive input node (a net name as read_schematic shows it).",
+      "type": "string"
+    },
+    "input_neg": {
+      "description": "Negative input node. Default: ground (`0`).",
+      "type": "string"
+    },
+    "output": {
+      "description": "Positive output node.",
+      "type": "string"
+    },
+    "output_neg": {
+      "description": "Negative output node. Default: ground (`0`).",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "A number as JSON or as SPICE text (`2.2k`)."
+      },
+      "description": "Values for this analysis only, without changing the file: an element\n(`R1`) or `.param` name and its value, e.g. `{\"R1\": \"2.2k\"}`.",
+      "type": "object"
+    },
+    "transfer": {
+      "anyOf": [
+        {
+          "description": "Voltage gain: V(output) / V(input).",
+          "enum": [
+            "vol"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Transimpedance: V(output) / I(input), for a current driven into the\ninput pair.",
+          "enum": [
+            "cur"
+          ],
+          "type": "string"
+        }
+      ],
+      "description": "`vol` for voltage gain (default) or `cur` for transimpedance."
+    }
+  },
+  "required": [
+    "circuit",
+    "input",
+    "output"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ## `sweep`
 
 Sweep component values or .param values (several parameters give every combination, at most 200 runs) and tabulate measurements for each. Works with every simulator. Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().

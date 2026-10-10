@@ -378,6 +378,34 @@ fn ngspice_several_plots_in_one_file() {
     }
 }
 
+#[test]
+fn ngspice_pole_zero() {
+    use aispice_sim::polezero::{PoleZero, Shape};
+    let ds = one("ngspice/rlc_pz.raw");
+    assert_eq!(ds.kind, AnalysisKind::PoleZero);
+    assert_eq!(ds.axis, None);
+    assert_eq!(ds.names(), vec!["V(pole(1))", "V(pole(2))"]);
+    let pz = PoleZero::from_dataset(&ds);
+    assert!(pz.zeros.is_empty());
+    let (l, c, r) = (10e-3f64, 100e-9f64, 100.0f64);
+    for p in &pz.poles {
+        let Shape::Complex { f0_hz, q, .. } = p.shape() else {
+            panic!("{p:?}");
+        };
+        let f0 = 1.0 / (2.0 * PI * (l * c).sqrt());
+        let q_want = (l / c).sqrt() / r;
+        assert!((f0_hz - f0).abs() / f0 < 1e-6, "f0 {f0_hz}");
+        assert!((q - q_want).abs() / q_want < 1e-6, "Q {q}");
+    }
+
+    let pz = PoleZero::from_dataset(&one("ngspice/lead_pz.raw"));
+    assert_eq!(pz.poles.len(), 1);
+    assert_eq!(pz.zeros.len(), 1);
+    assert!((pz.poles[0].re_hz + 2000.0 / (2.0 * PI)).abs() < 1e-9);
+    assert!((pz.zeros[0].re_hz + 1000.0 / (2.0 * PI)).abs() < 1e-9);
+    assert_eq!(pz.poles[0].im_hz, 0.0);
+}
+
 // Xyce
 
 #[test]

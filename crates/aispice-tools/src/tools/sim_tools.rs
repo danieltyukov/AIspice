@@ -6,7 +6,9 @@ use crate::workspace::Workspace;
 use aispice_agent::tool::parse_input;
 use aispice_agent::{Tool, ToolContext, ToolOutput, ToolSpec};
 use aispice_core::edit::{EditOp, apply};
+use aispice_core::netlist::{Line, Netlist};
 use aispice_core::units;
+use aispice_sim::backend::SimId;
 use aispice_sim::dataset::{AnalysisKind, Dataset, Quantity};
 use aispice_sim::measure::{Measure, MeasureResult, measure};
 use aispice_sim::montecarlo::{self, Tolerance};
@@ -14,6 +16,7 @@ use aispice_sim::optimize::{
     self, CmaEs, CmaEsOptions, Goal, NelderMead, NelderMeadOptions, Objective, Param, RunOptions,
 };
 use aispice_sim::plot::{PlotRequest, plot_svg};
+use aispice_sim::polezero::{PoleZero, Root, Stability};
 use aispice_sim::spec::{Spec, SpecReport, evaluate, parse_specs};
 use aispice_sim::sweep::{self, SweepParam};
 use async_trait::async_trait;
@@ -21,6 +24,7 @@ use base64::Engine as _;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 const MEASURE_SYNTAX: &str = "Measurements are written `name = kind(args)`, for example `f3db = bandwidth_3db(V(out))`, `gain = gain_db_at(V(out)/V(in), 1k)`, `pm = phase_margin(V(out))`, `tr = rise_time(V(out), 10, 90)`, `vmax = max(V(out), 1m, 5m)`. Kinds: value_at(expr, at), min/max/pp/avg/rms/integral(expr[, from, to]), crossing(expr, level[, rise|fall|either, nth]), rise_time/fall_time(expr[, low_pct, high_pct]), overshoot_pct/undershoot_pct(expr), settling_time(expr[, tolerance_pct]), delay(from_expr, to_expr[, level_pct]), frequency/period/duty_cycle(expr), thd(expr, fundamental[, harmonics]), gain_db_at/phase_at(expr, freq), bandwidth_3db(expr[, dc|peak]), unity_gain_freq/phase_margin/gain_margin/peak_gain(expr), freq_at_db(expr, db). Expressions use V(node), V(a,b), I(R1), + - * /, and db(), mag(), ph().";
@@ -1181,5 +1185,279 @@ impl Tool for Optimize {
             t.push_str(&spec_text(r));
         }
         ToolOutput::text(t).with_data(json!({"kind": "optimize", "best": best, "evaluations": result.evaluations, "report": final_report.as_ref().map(ui_spec_report)}))
+    }
+}
+
+const NEEDS_NGSPICE: &str = "Pole-zero analysis needs ngspice, and it was not found on this machine. Install it (Debian or Ubuntu: `sudo apt install ngspice`; Fedora: `sudo dnf install ngspice`; macOS: `brew install ngspice`; Windows: the zip from https://ngspice.sourceforge.io with its bin folder on PATH) and try again. LTspice and Xyce have no .pz analysis.";
+
+#[derive(Debug, Deserialize, JsonSchema, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Transfer {
+    /// Voltage gain: V(output) / V(input).
+    #[default]
+    Vol,
+    /// Transimpedance: V(output) / I(input), for a current driven into the
+    /// input pair.
+    Cur,
+}
+
+/// A number as JSON or as SPICE text (`2.2k`).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ParamValue {
+    Value(f64),
+    Text(String),
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PolesZerosInput {
+    pub circuit: String,
+    /// Positive input node (a net name as read_schematic shows it).
+    pub input: String,
+    /// Negative input node. Default: ground (`0`).
+    #[serde(default)]
+    pub input_neg: Option<String>,
+    /// Positive output node.
+    pub output: String,
+    /// Negative output node. Default: ground (`0`).
+    #[serde(default)]
+    pub output_neg: Option<String>,
+    /// `vol` for voltage gain (default) or `cur` for transimpedance.
+    #[serde(default)]
+    pub transfer: Transfer,
+    /// Values for this analysis only, without changing the file: an element
+    /// (`R1`) or `.param` name and its value, e.g. `{"R1": "2.2k"}`.
+    #[serde(default)]
+    pub params: BTreeMap<String, ParamValue>,
+}
+
+pub struct PolesZeros {
+    pub ws: Arc<Workspace>,
+}
+
+/// A node for the `.pz` line: ground, or a node the circuit has, spelled as
+/// the netlist spells it. Checking against the netlist also keeps anything
+/// but a node name out of the deck.
+fn pz_node(netlist: &Netlist, given: &str) -> Result<String, String> {
+    let name = given.trim();
+    let lower = name.to_ascii_lowercase();
+    let name = lower
+        .strip_prefix("v(")
+        .and_then(|s| s.strip_suffix(')'))
+        .map_or(name, |inner| &name[2..2 + inner.len()]);
+    if name == "0" || name.eq_ignore_ascii_case("gnd") {
+        return Ok("0".into());
+    }
+    let nodes = netlist.nodes();
+    nodes
+        .iter()
+        .find(|n| n.eq_ignore_ascii_case(name))
+        .cloned()
+        .ok_or_else(|| {
+            let shown: Vec<&str> = nodes
+                .iter()
+                .map(String::as_str)
+                .filter(|n| *n != "0")
+                .take(60)
+                .collect();
+            format!(
+                "the circuit has no node `{given}`; ground is `0` and its other nodes are: {}",
+                shown.join(", ")
+            )
+        })
+}
+
+/// Directives left out of a pole-zero run. ngspice runs every analysis in a
+/// deck, `.meas`, `.four` and print lines belong to another analysis,
+/// `.step` is not ngspice syntax, and with a `.save` line ngspice saves no
+/// pole-zero data and skips the analysis.
+fn left_out_of_pz(directive: &str) -> bool {
+    let kw = directive
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    aispice_core::netlist::spice::is_analysis(directive)
+        || matches!(
+            kw.as_str(),
+            ".meas"
+                | ".measure"
+                | ".step"
+                | ".save"
+                | ".four"
+                | ".fourier"
+                | ".print"
+                | ".plot"
+                | ".disto"
+                | ".net"
+                | ".wave"
+        )
+}
+
+/// The circuit with `.pz` as its only analysis.
+pub fn pz_netlist(netlist: &Netlist, pz: &str) -> Netlist {
+    let mut n = netlist.clone();
+    n.items
+        .retain(|l| !matches!(l, Line::Directive { text } if left_out_of_pz(text)));
+    crate::runner::apply_mods(
+        &mut n,
+        &RunMods {
+            analysis: Some(pz.to_string()),
+            extra: Vec::new(),
+        },
+    );
+    n
+}
+
+fn roots_json(roots: &[Root]) -> Vec<Value> {
+    roots
+        .iter()
+        .map(|r| json!({"re_hz": r.re_hz, "im_hz": r.im_hz, "f0_hz": r.f0_hz(), "q": r.q()}))
+        .collect()
+}
+
+#[async_trait]
+impl Tool for PolesZeros {
+    fn spec(&self) -> ToolSpec {
+        spec::<PolesZerosInput>(
+            "poles_zeros",
+            "Pole-zero analysis of a transfer function with ngspice's .pz: the poles and zeros of V(output)/V(input), or V(output)/I(input) with transfer `cur`, in Hz, with f0, Q and damping ratio for each complex pair and the corner of each real root, and whether the circuit is stable (any pole in the right half-plane means it is not). Nonlinear parts are linearised at the operating point, as in an AC analysis. The circuit's own analyses, .meas, .step and .save lines are left out of this run, and the file is not changed. Needs ngspice: LTspice and Xyce have no .pz analysis.",
+        )
+    }
+
+    async fn call(&self, ctx: &ToolContext, input: Value) -> ToolOutput {
+        let input: PolesZerosInput = input!(input);
+        let have_ngspice = self
+            .ws
+            .runner
+            .detect()
+            .await
+            .iter()
+            .any(|(id, d)| *id == SimId::Ngspice && d.found);
+        if !have_ngspice {
+            return ToolOutput::error(NEEDS_NGSPICE);
+        }
+        let p = match self.ws.project() {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let (mut netlist, std_libs, warnings) = match self.ws.runner.netlist_for(&p, &input.circuit)
+        {
+            Ok(v) => v,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let neg = |n: &Option<String>| n.clone().unwrap_or_else(|| "0".into());
+        let nodes = [
+            input.input.clone(),
+            neg(&input.input_neg),
+            input.output.clone(),
+            neg(&input.output_neg),
+        ]
+        .map(|n| pz_node(&netlist, &n));
+        let [in_p, in_n, out_p, out_n] = match nodes {
+            [Ok(a), Ok(b), Ok(c), Ok(d)] => [a, b, c, d],
+            other => {
+                let e = other.into_iter().find_map(Result::err).unwrap_or_default();
+                return ToolOutput::error(e);
+            }
+        };
+        for (name, value) in &input.params {
+            let v = match value {
+                ParamValue::Value(v) => Some(*v),
+                ParamValue::Text(t) => aispice_sim::expr::parse_number(t),
+            };
+            let Some(v) = v else {
+                return ToolOutput::error(format!("params: the value of {name} is not a number"));
+            };
+            if let Err(e) = sweep::set_value(&mut netlist, name, v) {
+                return ToolOutput::error(format!("params: {e}"));
+            }
+        }
+        let kind = match input.transfer {
+            Transfer::Vol => "vol",
+            Transfer::Cur => "cur",
+        };
+        let netlist = pz_netlist(
+            &netlist,
+            &format!(".pz {in_p} {in_n} {out_p} {out_n} {kind} pz"),
+        );
+        // Not kept as a run: measure and plot keep using the circuit's own
+        // latest simulation.
+        let run = match self
+            .ws
+            .runner
+            .run_netlist_with(
+                &p,
+                &input.circuit,
+                &netlist,
+                &std_libs,
+                Some("ngspice"),
+                &ctx.cancel,
+                false,
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(crate::runner::RunError::Unavailable(_)) => {
+                return ToolOutput::error(NEEDS_NGSPICE);
+            }
+            Err(e) => return ToolOutput::error(format!("Pole-zero analysis failed: {e}")),
+        };
+        let Some(pz) = PoleZero::from_datasets(&run.output.datasets) else {
+            let mut t = String::from("ngspice returned no pole-zero results.");
+            for e in run
+                .output
+                .errors
+                .iter()
+                .chain(&run.output.warnings)
+                .take(10)
+            {
+                t.push_str(&format!("\n  {e}"));
+            }
+            return ToolOutput::error(t);
+        };
+        let pair = |p: &str, n: &str| {
+            if n == "0" {
+                p.to_string()
+            } else {
+                format!("{p},{n}")
+            }
+        };
+        let source = match input.transfer {
+            Transfer::Vol => "V",
+            Transfer::Cur => "I",
+        };
+        let mut t = format!(
+            "Poles and zeros of V({})/{source}({}) in {} (ngspice .pz{}):\n",
+            pair(&out_p, &out_n),
+            pair(&in_p, &in_n),
+            input.circuit,
+            if input.params.is_empty() {
+                String::new()
+            } else {
+                let set: Vec<String> = input
+                    .params
+                    .iter()
+                    .map(|(k, v)| match v {
+                        ParamValue::Value(v) => format!("{k}={}", units::format(*v)),
+                        ParamValue::Text(s) => format!("{k}={s}"),
+                    })
+                    .collect();
+                format!(", with {}", set.join(" "))
+            }
+        );
+        t.push_str(&pz.report());
+        for n in warnings.iter().chain(&run.notes) {
+            t.push_str(&format!("  note: {n}\n"));
+        }
+        for w in run.output.warnings.iter().take(10) {
+            t.push_str(&format!("  warning: {w}\n"));
+        }
+        ToolOutput::text(t).with_data(json!({
+            "kind": "poles_zeros",
+            "poles": roots_json(&pz.poles),
+            "zeros": roots_json(&pz.zeros),
+            "stable": pz.stability() == Stability::Stable,
+        }))
     }
 }

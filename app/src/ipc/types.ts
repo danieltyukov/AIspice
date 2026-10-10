@@ -115,7 +115,7 @@ export interface Doctor {
   ltspice_lib: string | null;
 }
 
-export type AnalysisKind = "transient" | "ac" | "dc" | "op" | "noise" | "transfer_function" | "other";
+export type AnalysisKind = "transient" | "ac" | "dc" | "op" | "noise" | "transfer_function" | "pole_zero" | "other";
 
 export interface VectorMeta {
   name: string;
@@ -241,7 +241,16 @@ export type ToolData =
   | { kind: "plot"; svg: string }
   | { kind: "optimize"; best: Record<string, string>; evaluations: number; report: SpecReport }
   | { kind: "montecarlo"; runs: number; yield_pct: number; report: string }
+  | { kind: "poles_zeros"; poles: PzRoot[]; zeros: PzRoot[]; stable: boolean }
   | { kind: "generic"; value: unknown };
+
+/** A pole or zero in Hz. `q` is set for a damped complex root only. */
+export interface PzRoot {
+  re_hz: number;
+  im_hz: number;
+  f0_hz: number;
+  q: number | null;
+}
 
 export type AgentEvent =
   | { type: "text_delta"; text: string }

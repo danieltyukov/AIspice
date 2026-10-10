@@ -138,6 +138,147 @@ async fn simulate_check_specs_and_optimize_on_ngspice() {
     assert!(mc.contains("yield") || mc.contains("Yield"), "{mc}");
 }
 
+/// RC low-pass with R = 1k, C = 159.15n: one real pole at -1/(2 pi R C) =
+/// -1 kHz and no zeros. The `.meas` and `.save` lines would stop ngspice's
+/// `.pz` if they reached it.
+const RC_PZ: &str = r#"[
+    {"op": "add_component", "symbol": "voltage", "name": "V1", "value": "0", "attrs": {"SpiceLine": "AC 1"}},
+    {"op": "add_component", "symbol": "res", "name": "R1", "value": "1k", "orient": "R90", "near": "V1"},
+    {"op": "add_component", "symbol": "cap", "name": "C1", "value": "159.15n", "near": "R1"},
+    {"op": "connect", "from": "V1.+", "to": "R1.B"},
+    {"op": "connect", "from": "R1.A", "to": "C1.A"},
+    {"op": "connect_to_net", "pin": "V1.-", "net": "0"},
+    {"op": "connect_to_net", "pin": "C1.B", "net": "0"},
+    {"op": "connect_to_net", "pin": "C1.A", "net": "out"},
+    {"op": "connect_to_net", "pin": "V1.+", "net": "in"},
+    {"op": "add_directive", "text": ".ac dec 50 10 1Meg"},
+    {"op": "add_directive", "text": ".save V(out) V(in)"},
+    {"op": "add_directive", "text": ".meas ac peak MAX mag(V(out))"}
+]"#;
+
+/// Series RLC low-pass with a complex pair: f0 = 1/(2 pi sqrt(LC)) and
+/// Q = sqrt(L/C)/R. The transient, `.step` and `.meas` lines must be left
+/// out of the pole-zero run.
+const RLC_PZ: &str = "series RLC\nV1 in 0 PULSE(0 1 0 1n 1n 1m 2m) AC 1\nR1 in a 100\nL1 a out 10m\nC1 out 0 {C}\n.param C=100n\n.tran 0 2m\n.step param C list 100n 220n\n.meas tran vmax MAX V(out)\n.end\n";
+
+/// Positive feedback through an ideal amplifier: C dV/dt = (Vin - V)/10k +
+/// (2V - V)/1k puts a pole at +(1/1k - 1/10k)/C = +900 rad/s (143.2 Hz).
+const UNSTABLE_PZ: &str =
+    "positive feedback\nV1 in 0 0 AC 1\nRin in x 10k\nC1 x 0 1u\nRf y x 1k\nE1 y 0 x 0 2\n.end\n";
+
+/// A current into a parallel RC: Z(s) = R/(1 + sRC), one pole at -1 kHz.
+const CUR_PZ: &str = "transimpedance\nI1 0 x 0 AC 1\nR1 x 0 1k\nC1 x 0 159.15n\n.op\n.end\n";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn poles_zeros_on_ngspice() {
+    if !have_ngspice() {
+        eprintln!("skipped: ngspice not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("rlc.cir"), RLC_PZ).unwrap();
+    std::fs::write(dir.path().join("unstable.cir"), UNSTABLE_PZ).unwrap();
+    std::fs::write(dir.path().join("cur.cir"), CUR_PZ).unwrap();
+    let project = Project::open(dir.path(), ProjectOptions::default()).unwrap();
+    let ws = Arc::new(Workspace::with_project(project));
+    let edits: Value = serde_json::from_str(RC_PZ).unwrap();
+    let pz = "poles_zeros";
+    let results = run_script(
+        ws.clone(),
+        vec![
+            tool_reply([("a", "create_schematic", json!({"circuit": "rc.asc", "edits": edits}))]),
+            tool_reply([("b", "simulate", json!({"circuit": "rc.asc", "simulator": "ngspice"}))]),
+            tool_reply([("c", pz, json!({"circuit": "rc.asc", "input": "in", "output": "out"}))]),
+            tool_reply([("d", "measure", json!({"circuit": "rc.asc", "measurements": ["f3db = bandwidth_3db(V(out))"]}))]),
+            tool_reply([("e", pz, json!({"circuit": "rc.asc", "input": "in", "output": "out", "params": {"R1": "2k"}}))]),
+            tool_reply([("f", pz, json!({"circuit": "rlc.cir", "input": "in", "input_neg": "0", "output": "V(out)", "transfer": "vol"}))]),
+            tool_reply([("g", pz, json!({"circuit": "unstable.cir", "input": "in", "output": "y"}))]),
+            tool_reply([("h", pz, json!({"circuit": "cur.cir", "input": "x", "output": "x", "transfer": "cur"}))]),
+            tool_reply([("i", pz, json!({"circuit": "rc.asc", "input": "nosuch", "output": "out"}))]),
+            text_reply("done"),
+        ],
+    )
+    .await;
+    assert_eq!(results.len(), 9);
+    for (name, text, is_error, _) in &results[..8] {
+        assert!(!is_error, "{name} failed:\n{text}");
+    }
+    let data = |i: usize| results[i].3.clone().unwrap();
+    let close = |a: f64, b: f64| (a - b).abs() / b.abs() < 0.005;
+
+    // RC: one real pole at -1 kHz, no zeros, stable.
+    let (text, d) = (&results[2].1, data(2));
+    assert_eq!(d["kind"], "poles_zeros");
+    assert_eq!(d["stable"], true, "{text}");
+    assert_eq!(d["zeros"].as_array().unwrap().len(), 0, "{text}");
+    let poles = d["poles"].as_array().unwrap();
+    assert_eq!(poles.len(), 1, "{text}");
+    let re = poles[0]["re_hz"].as_f64().unwrap();
+    assert!(close(re, -1000.0), "pole {re} Hz\n{text}");
+    assert_eq!(poles[0]["im_hz"].as_f64().unwrap(), 0.0);
+    assert!(close(poles[0]["f0_hz"].as_f64().unwrap(), 1000.0));
+    assert!(poles[0]["q"].is_null());
+    assert!(text.contains("V(out)/V(in)"), "{text}");
+    assert!(text.contains("real, corner at 1 kHz"), "{text}");
+    assert!(text.starts_with("Poles and zeros"), "{text}");
+
+    // The pole-zero run is not kept: measure still sees the AC run.
+    assert!(results[3].1.contains("f3db"), "{}", results[3].1);
+
+    // The same circuit with R1 doubled for this run only.
+    let re2 = data(4)["poles"][0]["re_hz"].as_f64().unwrap();
+    assert!(close(re2, -500.0), "pole with R1=2k: {re2}");
+    assert!(results[4].1.contains("with R1=2k"), "{}", results[4].1);
+    let on_disk = std::fs::read_to_string(dir.path().join("rc.asc")).unwrap();
+    assert!(
+        on_disk.contains("SYMATTR Value 1k"),
+        "the file must not change"
+    );
+
+    // Series RLC: a complex pair with the analytic f0 and Q.
+    let (text, d) = (&results[5].1, data(5));
+    let (r, l, c) = (100.0f64, 10e-3f64, 100e-9f64);
+    let f0 = 1.0 / (2.0 * std::f64::consts::PI * (l * c).sqrt());
+    let q = (l / c).sqrt() / r;
+    let poles = d["poles"].as_array().unwrap();
+    assert_eq!(poles.len(), 2, "{text}");
+    for p in poles {
+        let got_f0 = p["f0_hz"].as_f64().unwrap();
+        let got_q = p["q"].as_f64().unwrap();
+        assert!(close(got_f0, f0), "f0 {got_f0} vs {f0}\n{text}");
+        assert!(close(got_q, q), "Q {got_q} vs {q}\n{text}");
+    }
+    assert!(poles[0]["im_hz"].as_f64().unwrap() > 0.0);
+    assert!(poles[1]["im_hz"].as_f64().unwrap() < 0.0);
+    assert_eq!(d["stable"], true);
+    assert!(
+        text.contains("complex pair, f0 = 5.033 kHz, Q = 3.162"),
+        "{text}"
+    );
+
+    // Positive feedback: a right half-plane pole, reported loudly.
+    let (text, d) = (&results[6].1, data(6));
+    assert_eq!(d["stable"], false, "{text}");
+    let re = d["poles"][0]["re_hz"].as_f64().unwrap();
+    assert!(close(re, 900.0 / (2.0 * std::f64::consts::PI)), "{re}");
+    assert!(text.contains("UNSTABLE: 1 of 1 poles"), "{text}");
+    assert!(text.contains("+143.2 Hz: real"), "{text}");
+
+    // Transimpedance of a current-driven parallel RC.
+    let (text, d) = (&results[7].1, data(7));
+    assert!(text.contains("V(x)/I(x)"), "{text}");
+    let re = d["poles"][0]["re_hz"].as_f64().unwrap();
+    assert!(close(re, -1000.0), "{re}");
+
+    // An unknown node is refused before anything runs, with the real ones.
+    let (text, is_error) = (&results[8].1, results[8].2);
+    assert!(is_error, "{text}");
+    assert!(
+        text.contains("no node `nosuch`") && text.contains("out"),
+        "{text}"
+    );
+}
+
 struct DenyAll;
 
 #[async_trait::async_trait]

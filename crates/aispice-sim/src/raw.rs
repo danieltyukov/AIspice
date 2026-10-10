@@ -22,6 +22,9 @@
 //!   dummy `sweep` variable, and names node voltages bare (`OUT`).
 //! - ngspice leaves the imaginary part of the AC frequency uninitialised, so
 //!   only the real part of the axis is used.
+//! - ngspice's `.pz` writes one complex point per root (`v(pole(1))`,
+//!   `v(zero(1))`, in rad/s), and a plot with no variables at all when the
+//!   transfer function has no finite poles or zeros.
 
 use crate::dataset::{
     AnalysisKind, Complex, Dataset, Quantity, Step, Vector, VectorData, normalize_name,
@@ -353,7 +356,7 @@ fn parse_plot(r: &mut Reader) -> Result<Option<RawPlot>, RawError> {
                         vars.len()
                     )));
                 }
-                if n == 0 {
+                if n == 0 && analysis_kind(&plotname) != AnalysisKind::PoleZero {
                     return Err(RawError::Header("plot has no variables".into()));
                 }
                 let complex = flags.iter().any(|f| f.eq_ignore_ascii_case("complex"));
@@ -424,6 +427,10 @@ fn read_binary(
     complex: bool,
 ) -> Result<Columns, RawError> {
     let n = plot.vars.len();
+    if n == 0 {
+        // An empty pole-zero plot has no data; the next plot starts here.
+        return Ok(Columns::Real(Vec::new()));
+    }
     let data = r.remaining();
     let double = plot.has_flag("double");
     let fast = plot.has_flag("fastaccess");
@@ -610,6 +617,8 @@ pub fn analysis_kind(plotname: &str) -> AnalysisKind {
         AnalysisKind::Ac
     } else if p.contains("transfer function") {
         AnalysisKind::TransferFunction
+    } else if p.contains("pole-zero") {
+        AnalysisKind::PoleZero
     } else if p.contains("operating point") {
         AnalysisKind::Op
     } else if p.contains("dc transfer") || p.contains("dc sweep") || p.starts_with("dc ") {
@@ -664,6 +673,21 @@ fn xyce_dc_source(plotname: &str) -> Option<String> {
 
 fn to_dataset(plot: RawPlot) -> Result<Dataset, RawError> {
     let mut kind = analysis_kind(&plot.plotname);
+    if plot.vars.is_empty() {
+        // A pole-zero analysis that found nothing (parse_plot refuses empty
+        // plots of any other kind).
+        return Ok(Dataset {
+            title: plot.title,
+            plotname: plot.plotname,
+            kind,
+            axis: None,
+            vectors: Vec::new(),
+            steps: vec![Step {
+                range: 0..0,
+                label: String::new(),
+            }],
+        });
+    }
     let npoints = match &plot.columns {
         Columns::Real(c) => c.first().map_or(0, Vec::len),
         Columns::Complex(c) => c.first().map_or(0, Vec::len),
@@ -680,7 +704,7 @@ fn to_dataset(plot: RawPlot) -> Result<Dataset, RawError> {
     }
     let first_q = quantity_of(&plot.vars[0].kind);
     let axis = match kind {
-        AnalysisKind::Op | AnalysisKind::TransferFunction => None,
+        AnalysisKind::Op | AnalysisKind::TransferFunction | AnalysisKind::PoleZero => None,
         AnalysisKind::Dc => Some(0),
         _ if matches!(
             first_q,
@@ -963,6 +987,7 @@ mod tests {
             ),
             AnalysisKind::Transient
         );
+        assert_eq!(analysis_kind("Pole-Zero Analysis"), AnalysisKind::PoleZero);
         assert_eq!(analysis_kind("unknown"), AnalysisKind::Other);
     }
 
@@ -1000,6 +1025,36 @@ mod tests {
         assert_eq!(d.kind, AnalysisKind::Transient);
         assert_eq!(d.names(), vec!["time", "V(out)", "I(V1:p)"]);
         assert!((d.vector("out").unwrap().data.real()[1] - 0.632_120_558_8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ngspice_pole_zero_plots() {
+        // The header ngspice 42 writes for `.pz` on a series RLC, with the
+        // complex pair in rad/s.
+        let mut bytes = b"Title: * rlc\nDate: Sat Oct 10 16:30:44  2026\nPlotname: Pole-Zero Analysis\nFlags: complex\nNo. Variables: 2\nNo. Points: 1       \nVariables:\n\t0\tv(pole(1))\tvoltage\n\t1\tv(pole(2))\tvoltage\nBinary:\n".to_vec();
+        for v in [-5000.0f64, 31225.0, -5000.0, -31225.0] {
+            bytes.extend(v.to_le_bytes());
+        }
+        let d = &read_raw(&bytes).unwrap()[0];
+        assert_eq!(d.kind, AnalysisKind::PoleZero);
+        assert_eq!(d.axis, None);
+        assert_eq!(d.names(), vec!["V(pole(1))", "V(pole(2))"]);
+        assert_eq!(
+            d.vectors[1].data.as_complex(),
+            vec![Complex::new(-5000.0, -31225.0)]
+        );
+
+        // No finite poles or zeros (a resistive divider): an empty plot is a
+        // result, not a malformed file.
+        let empty = b"Title: * resistive only\nDate: Sat Oct 10 16:31:47  2026\nPlotname: Pole-Zero Analysis\nFlags: real\nNo. Variables: 0\nNo. Points: 1       \nVariables:\nBinary:\n";
+        let ds = read_raw(empty).unwrap();
+        assert_eq!(ds.len(), 1);
+        assert_eq!(ds[0].kind, AnalysisKind::PoleZero);
+        assert!(ds[0].vectors.is_empty());
+
+        // Any other plot without variables still is.
+        let bad = b"Title: x\nPlotname: Transient Analysis\nFlags: real\nNo. Variables: 0\nNo. Points: 1\nVariables:\nBinary:\n";
+        assert!(matches!(read_raw(bad), Err(RawError::Header(_))));
     }
 
     #[test]

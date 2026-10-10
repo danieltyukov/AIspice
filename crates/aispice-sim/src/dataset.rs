@@ -75,6 +75,8 @@ pub enum AnalysisKind {
     Op,
     Noise,
     TransferFunction,
+    /// ngspice's `.pz`: one complex point per pole and zero, no axis.
+    PoleZero,
     Other,
 }
 
