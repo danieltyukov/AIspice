@@ -4,12 +4,14 @@
 //! structured payload the desktop app renders as a card. Shapes of `data` are
 //! the `ToolData` union in `app/src/ipc/types.ts`.
 
+mod render_tools;
 mod schematic_tools;
 
 use crate::workspace::Workspace;
 use aispice_agent::{Registry, ToolOutput};
 use std::sync::Arc;
 
+pub use render_tools::*;
 pub use schematic_tools::*;
 
 /// All tools, bound to one workspace.
@@ -22,6 +24,7 @@ pub fn registry(ws: Arc<Workspace>) -> Registry {
     r.register(Lint { ws: ws.clone() });
     r.register(NetlistTool { ws: ws.clone() });
     r.register(History { ws: ws.clone() });
+    r.register(RenderSchematic { ws: ws.clone() });
     r.register(Symbols { ws });
     r
 }

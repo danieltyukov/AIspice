@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-fn spec<T: JsonSchema>(name: &str, description: &str) -> ToolSpec {
+pub(crate) fn spec<T: JsonSchema>(name: &str, description: &str) -> ToolSpec {
     ToolSpec {
         name: name.into(),
         description: description.trim().into(),
@@ -167,11 +167,12 @@ impl Tool for EditSchematic {
                 .unwrap_or_else(|| "Edit".into())
         });
         if let Some(approver) = ws.approver()
-            && !approver.approve(&input.circuit, &summary, &d.text).await {
-                return ToolOutput::text(
-                    "The user declined this edit; nothing was changed. Ask what they would prefer.",
-                );
-            }
+            && !approver.approve(&input.circuit, &summary, &d.text).await
+        {
+            return ToolOutput::text(
+                "The user declined this edit; nothing was changed. Ask what they would prefer.",
+            );
+        }
         blocking(move || {
             let snapshot = p
                 .save(&input.circuit, &after, &summary)

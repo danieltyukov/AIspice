@@ -16,12 +16,15 @@ name = "aispice"
 path = "src/main.rs"
 
 [dependencies]
+aispice-agent = { version = "0.2.0", path = "../aispice-agent" }
 aispice-core.workspace = true
 aispice-tools.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+rmcp = { version = "3.5.1", features = ["server", "transport-io"] }
 serde.workspace = true
 serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 
 [dev-dependencies]
 assert_cmd.workspace = true

@@ -1,6 +1,7 @@
 //! `aispice`: the command-line face of aispice, and its MCP server.
 
 mod cmd_files;
+mod mcp;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -37,6 +38,23 @@ enum Command {
     },
     /// Describe a schematic: parts, the net on every pin, directives.
     Show { file: PathBuf },
+    /// Draw a schematic to SVG or PNG (chosen by the output extension).
+    Render {
+        file: PathBuf,
+        /// Output file, `.svg` or `.png`.
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Pixels per schematic unit for PNG.
+        #[arg(long, default_value_t = 2.0)]
+        scale: f32,
+    },
+    /// Serve aispice's tools over the Model Context Protocol on stdio.
+    Mcp {
+        /// Project folder the tools may read and write (default: the
+        /// current folder).
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -59,5 +77,25 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Netlist { file } => cmd_files::netlist(&ctx, &file),
         Command::Lint { file, strict } => cmd_files::lint(&ctx, &file, strict),
         Command::Show { file } => cmd_files::show(&ctx, &file),
+        Command::Render {
+            file,
+            output,
+            scale,
+        } => cmd_files::render(&ctx, &file, &output, scale),
+        Command::Mcp { project } => {
+            let dir = match project {
+                Some(p) => p,
+                None => std::env::current_dir()?,
+            };
+            let options = aispice_tools::ProjectOptions {
+                extra_symbol_dirs: ctx.symbols.clone(),
+                ltspice_lib: cmd_files::ltspice_lib(),
+            };
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(mcp::serve(&dir, options))?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }

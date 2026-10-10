@@ -99,3 +99,29 @@ pub fn show(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
     }
     Ok(ExitCode::SUCCESS)
 }
+
+pub fn render(ctx: &Ctx, file: &Path, output: &Path, scale: f32) -> Result<ExitCode> {
+    let (sch, lib) = load(ctx, file)?;
+    let out = aispice_core::render::render_svg(
+        &sch,
+        &lib,
+        &aispice_core::render::RenderOptions::default(),
+    );
+    for w in &out.warnings {
+        eprintln!("warning: {w}");
+    }
+    let is_png = output
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("png"));
+    if is_png {
+        let png = aispice_core::render::render_png(&out.svg, scale)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        std::fs::write(output, png).with_context(|| format!("writing {}", output.display()))?;
+    } else {
+        std::fs::write(output, out.svg).with_context(|| format!("writing {}", output.display()))?;
+    }
+    if !ctx.json {
+        println!("wrote {}", output.display());
+    }
+    Ok(ExitCode::SUCCESS)
+}

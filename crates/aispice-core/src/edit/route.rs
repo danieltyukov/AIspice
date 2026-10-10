@@ -87,6 +87,8 @@ fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
     }
     out.push(vec![p, Point::new(q.x, p.y), q]);
     out.push(vec![p, Point::new(p.x, q.y), q]);
+    let mid_x = crate::geometry::snap((p.x + q.x) / 2);
+    let mid_y = crate::geometry::snap((p.y + q.y) / 2);
     for k in [2, 3, 4, 6] {
         let pa = p.offset(a.out.0 * GRID * k, a.out.1 * GRID * k);
         let qb = q.offset(b.out.0 * GRID * k, b.out.1 * GRID * k);
@@ -94,8 +96,65 @@ fn candidates(a: &PinLoc, b: &PinLoc) -> Vec<Vec<Point>> {
         out.push(vec![p, pa, Point::new(pa.x, q.y), q]);
         out.push(vec![p, pa, Point::new(qb.x, pa.y), qb, q]);
         out.push(vec![p, pa, Point::new(pa.x, qb.y), qb, q]);
+        // Through the channel between the parts: step out of each pin, run
+        // along the gap, step back in. This is what joins the bottom of one
+        // vertical part to the top of its neighbour.
+        out.push(vec![
+            p,
+            pa,
+            Point::new(mid_x, pa.y),
+            Point::new(mid_x, qb.y),
+            qb,
+            q,
+        ]);
+        out.push(vec![
+            p,
+            pa,
+            Point::new(pa.x, mid_y),
+            Point::new(qb.x, mid_y),
+            qb,
+            q,
+        ]);
     }
-    out
+    // Wider detours for crowded sheets.
+    for k in [3, 6] {
+        let pa = p.offset(a.out.0 * GRID * k, a.out.1 * GRID * k);
+        let qb = q.offset(b.out.0 * GRID * k, b.out.1 * GRID * k);
+        for off in [GRID * 2, -GRID * 2, GRID * 4, -GRID * 4] {
+            out.push(vec![
+                p,
+                pa,
+                Point::new(mid_x + off, pa.y),
+                Point::new(mid_x + off, qb.y),
+                qb,
+                q,
+            ]);
+            out.push(vec![
+                p,
+                pa,
+                Point::new(pa.x, mid_y + off),
+                Point::new(qb.x, mid_y + off),
+                qb,
+                q,
+            ]);
+        }
+    }
+    // Drop zero-length steps and duplicate routes.
+    let mut seen = Vec::new();
+    out.into_iter()
+        .map(|mut path| {
+            path.dedup();
+            path
+        })
+        .filter(|path| {
+            if seen.contains(path) {
+                false
+            } else {
+                seen.push(path.clone());
+                true
+            }
+        })
+        .collect()
 }
 
 pub(crate) struct Router<'a> {

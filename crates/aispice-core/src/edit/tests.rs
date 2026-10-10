@@ -245,3 +245,45 @@ fn writer_never_emits_a_record_break_inside_a_field() {
     let records = text.split(['\n', '\r']).filter(|l| !l.is_empty()).count();
     assert_eq!(records, 2 + 3 + 1, "{text:?}");
 }
+
+#[test]
+fn side_by_side_vertical_parts_get_a_wire_not_labels() {
+    let mut sch = Schematic::new();
+    let report = apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[
+            {"op": "add_component", "symbol": "voltage", "name": "V1", "value": "10"},
+            {"op": "add_component", "symbol": "res", "name": "R1", "value": "10k", "near": "V1"},
+            {"op": "add_component", "symbol": "res", "name": "R2", "value": "10k", "near": "R1"},
+            {"op": "connect", "from": "V1.+", "to": "R1.A"},
+            {"op": "connect", "from": "R1.B", "to": "R2.A"}
+        ]"#),
+    )
+    .unwrap();
+    assert!(
+        report.applied.iter().all(|a| !a.contains("net label")),
+        "{:#?}",
+        report.applied
+    );
+    assert_eq!(net(&sch, "R1.B"), net(&sch, "R2.A"));
+}
+
+#[test]
+fn naming_a_labelled_net_renames_instead_of_stacking() {
+    let src = "Version 4\nSHEET 1 880 680\nWIRE 16 96 16 128\nFLAG 16 128 n7\nFLAG 400 400 n7\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 384 304 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\n";
+    let (mut sch, _) = parse(src);
+    apply(
+        &mut sch,
+        &lib(),
+        &ops(r#"[{"op": "connect_to_net", "pin": "R1.B", "net": "mid"}]"#),
+    )
+    .unwrap();
+    assert_eq!(net(&sch, "R1.B"), "mid");
+    assert_eq!(sch.flags().filter(|f| f.label == "mid").count(), 2);
+    let findings = lint(&sch, &lib()).findings;
+    assert!(
+        !findings.iter().any(|f| f.rule == "multiple-labels"),
+        "{findings:#?}"
+    );
+}
