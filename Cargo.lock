@@ -67,6 +67,21 @@ name = "aispice-sim"
 version = "0.2.0"
 dependencies = [
  "aispice-core",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "aispice-tools"
+version = "0.2.0"
+dependencies = [
+ "aispice-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
