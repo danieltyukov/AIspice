@@ -746,7 +746,9 @@ fn connect_to_net(
         let nearest = target
             .pins
             .iter()
-            .min_by_key(|q| (q.at.x - p.at.x).abs() + (q.at.y - p.at.y).abs())
+            .min_by_key(|q| {
+                (q.at.x as i64 - p.at.x as i64).abs() + (q.at.y as i64 - p.at.y as i64).abs()
+            })
             .expect("non-empty");
         let spec = format!("{}.{}", nearest.inst, nearest.pin);
         let other = locate(sch, lib, &spec)?;

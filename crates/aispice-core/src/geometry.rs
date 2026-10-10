@@ -231,7 +231,12 @@ impl Rect {
 /// LTspice wires are axis-aligned in practice, but diagonal ones are legal and
 /// handled exactly with integer arithmetic.
 pub fn on_segment(p: Point, a: Point, b: Point) -> bool {
-    let cross = (b.x - a.x) as i64 * (p.y - a.y) as i64 - (b.y - a.y) as i64 * (p.x - a.x) as i64;
+    // In i64 throughout: coordinates come from untrusted files and the
+    // differences alone can overflow i32.
+    let (px, py, ax, ay, bx, by) = (
+        p.x as i64, p.y as i64, a.x as i64, a.y as i64, b.x as i64, b.y as i64,
+    );
+    let cross = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
     cross == 0
         && p.x >= a.x.min(b.x)
         && p.x <= a.x.max(b.x)

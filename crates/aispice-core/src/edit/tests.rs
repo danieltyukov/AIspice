@@ -311,3 +311,26 @@ fn explicit_positions_snap_and_avoid_overlaps() {
         "{findings:#?}"
     );
 }
+
+/// Was a security finding: pin lookup and distance math overflowed i32 (a
+/// panic in debug builds) for a part placed near the edge of the coordinate
+/// range by an untrusted file.
+#[test]
+fn far_off_parts_do_not_overflow() {
+    let src = "Version 4\nSHEET 1 880 680\nSYMBOL res 2147483000 2147483000 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res -2147483000 -2147483000 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\nSYMBOL res 0 0 R0\nSYMATTR InstName R3\nSYMATTR Value 1k\n";
+    let (mut sch, _) = parse(src);
+    let lib = lib();
+    // Locating and wiring pins of the far parts, and of a near one past them.
+    let _ = apply(
+        &mut sch,
+        &lib,
+        &ops(
+            r#"[{"op":"connect_to_net","pin":"R1.A","net":"x"},{"op":"connect_to_net","pin":"R2.B","net":"y"},{"op":"connect_to_net","pin":"R3.A","net":"0"},{"op":"set_value","name":"R1","value":"2k"}]"#,
+        ),
+    );
+    assert!(crate::geometry::on_segment(
+        Point::new(0, 0),
+        Point::new(i32::MIN + 1, 0),
+        Point::new(i32::MAX, 0)
+    ));
+}

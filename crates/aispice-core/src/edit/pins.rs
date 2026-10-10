@@ -104,15 +104,16 @@ fn body_center(def: &SymbolDef, origin: Point, orient: crate::geometry::Orient) 
         .map(|p| origin + orient.apply(p.at))
         .collect();
     if def.graphics.is_empty() {
-        let n = pins.len().max(1) as i32;
-        let sx: i32 = pins.iter().map(|p| p.x).sum();
-        let sy: i32 = pins.iter().map(|p| p.y).sum();
-        return (sx / n, sy / n);
+        // Sums in i64 so far-off coordinates cannot overflow.
+        let n = pins.len().max(1) as i64;
+        let sx: i64 = pins.iter().map(|p| p.x as i64).sum();
+        let sy: i64 = pins.iter().map(|p| p.y as i64).sum();
+        return ((sx / n) as i32, (sy / n) as i32);
     }
     let b = def
         .placed_bounds(origin, orient)
         .unwrap_or(Rect::from_points(origin, origin));
-    ((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2)
+    (midpoint(b.min.x, b.max.x), midpoint(b.min.y, b.max.y))
 }
 
 /// The drawn body of each placed part, shrunk slightly so pins on its edge are
@@ -129,6 +130,10 @@ pub(crate) fn bodies(sch: &Schematic, lib: &SymbolLibrary) -> Vec<(String, Rect)
                 .then(|| (s.inst_name().unwrap_or("").to_string(), r.inflate(-4)))
         })
         .collect()
+}
+
+fn midpoint(a: i32, b: i32) -> i32 {
+    ((a as i64 + b as i64) / 2) as i32
 }
 
 #[cfg(test)]
