@@ -194,25 +194,31 @@ fn continued_from(a: &NetMap, b: &NetMap) -> BTreeMap<usize, usize> {
             *overlap.entry((nb, na)).or_default() += 1;
         }
     }
-    let mut candidates: Vec<(bool, usize, usize, usize)> = overlap
+    let size = |m: &NetMap, n: usize| m.of_pin.values().filter(|&&x| x == n).count();
+    let mut candidates: Vec<(bool, usize, usize, usize, usize)> = overlap
         .into_iter()
+        // A pin left on its own with nothing attached does not carry on a
+        // net that joined several pins: the net is gone.
+        .filter(|((nb, na), _)| !(b.names[*nb].starts_with("NC_") && size(a, *na) > 1))
         .map(|((nb, na), count)| {
             let same_name =
                 is_named(&b.names[nb]) && b.names[nb].eq_ignore_ascii_case(&a.names[na]);
-            (same_name, count, nb, na)
+            (same_name, count, size(b, nb), nb, na)
         })
         .collect();
-    // Name matches first, then the largest overlap; ties by net order, so the
-    // result does not depend on how the maps iterate.
+    // Name matches first, then the largest overlap, then the larger net
+    // after; remaining ties by net order, so the result does not depend on
+    // how the maps iterate.
     candidates.sort_by(|x, y| {
         y.0.cmp(&x.0)
             .then(y.1.cmp(&x.1))
-            .then(x.2.cmp(&y.2))
+            .then(y.2.cmp(&x.2))
             .then(x.3.cmp(&y.3))
+            .then(x.4.cmp(&y.4))
     });
     let mut out = BTreeMap::new();
     let mut taken = BTreeSet::new();
-    for (_, _, nb, na) in candidates {
+    for (_, _, _, nb, na) in candidates {
         if out.contains_key(&nb) || taken.contains(&na) {
             continue;
         }
@@ -416,6 +422,32 @@ mod tests {
         let d = diff(&before, &split, &lib);
         let moved: Vec<&str> = d.rewired.iter().map(|r| r.pin.as_str()).collect();
         assert_eq!(moved, vec!["C1.A"], "{:?}", d.rewired);
+    }
+
+    /// A two-pin numbered net split by a disconnect: neither lone pin
+    /// carries the old net on, so both are reported, the disconnected one
+    /// included (a tie used to be broken by net order and could report only
+    /// the pin that stayed put).
+    #[test]
+    fn a_net_that_falls_apart_reports_its_pins() {
+        let lib = SymbolLibrary::builtin_only();
+        let src = "Version 4\nSHEET 1 880 680\nWIRE 16 16 144 16\nSYMBOL res 0 0 R0\nSYMATTR InstName R1\nSYMATTR Value 1k\nSYMBOL res 128 0 R0\nSYMATTR InstName R2\nSYMATTR Value 1k\n";
+        let (before, _) = parse(src);
+        for pin in ["R2.A", "R1.A"] {
+            let mut after = before.clone();
+            apply(
+                &mut after,
+                &lib,
+                &serde_json::from_str::<Vec<EditOp>>(&format!(
+                    r#"[{{"op":"disconnect","pin":"{pin}"}}]"#
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+            let d = diff(&before, &after, &lib);
+            let moved: Vec<&str> = d.rewired.iter().map(|r| r.pin.as_str()).collect();
+            assert!(moved.contains(&pin), "{pin}: {:?}", d.rewired);
+        }
     }
 
     #[test]
