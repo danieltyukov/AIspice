@@ -38,7 +38,7 @@ workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 # Sets the program name, and so the X11 window class, to the app id; the
 # same 0.18 that Tauri's GTK stack uses.
-glib = "0.18"
+glib = "0.21"
 
 [dev-dependencies]
 tempfile.workspace = true
